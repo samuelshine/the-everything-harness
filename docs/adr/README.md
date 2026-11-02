@@ -11,7 +11,7 @@ These decisions are open, with the research's current lean. Sources are in [synt
 
 | ADR | Decision | Research lean |
 |---|---|---|
-| 0001 | Language/runtime and distribution | TypeScript on Bun, compiled to a single binary; engine/TUI split with a language-neutral event protocol |
+| [0001](0001-language-runtime-and-distribution.md) (Proposed) | Language/runtime and distribution | TypeScript on Bun, compiled to a single binary; engine/TUI split with a language-neutral event protocol |
 | 0002 | Provider layer: own adapters vs LiteLLM | Native adapters for the top 2–3 providers, plus a gateway adapter for the long tail |
 | 0003 | Permission and sandbox model | Sandbox mode x approval mode, plus deny→ask→allow rules over a parsed shell AST |
 | 0004 | Session storage and checkpoints | Append-only JSONL sessions, plus a shadow-git snapshot per turn |
