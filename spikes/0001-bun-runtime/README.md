@@ -43,7 +43,7 @@ Renderer numbers are identical on every OS (4.3 MiB inline vs 8.3 MiB naive), as
 - Live provider calls with real API keys.
 
 ## Findings so far
-- **Binary size (~70 MiB)** is the main cost of Bun `--compile`, because it embeds the runtime. Acceptable for a CLI (Claude Code and Codex ship binaries of similar order), but worth tracking. Two binaries means ~140 MiB; ship one binary with subcommands in the real product.
+- **Binary size (~70 MiB)** is the main cost of Bun `--compile`, because it embeds the runtime. Probably acceptable for a CLI, but worth tracking. Two binaries means ~140 MiB; ship one binary with subcommands in the real product.
 - **macOS sandbox profiles need real paths.** `/var` → `/private/var` symlinks made the workspace write fail until the paths were resolved with `realpath`. The real sandbox layer must canonicalise every path before generating policy.
 - **Linux needs unprivileged user namespaces.** Ubuntu 24.04 restricts them via AppArmor, so the workflow relaxes `kernel.apparmor_restrict_unprivileged_userns`. Real users on such distros will hit this. The harness must detect it and explain the fix, or fall back to a container.
 - **Windows has no sandbox story yet.** That is expected (doc 10 §4) and needs its own ADR.
