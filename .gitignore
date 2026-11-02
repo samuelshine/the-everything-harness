@@ -1,0 +1,30 @@
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/*
+!.vscode/extensions.json
+*.swp
+
+# Python (research tooling)
+__pycache__/
+*.pyc
+.venv/
+
+# Node / Bun (planned)
+node_modules/
+dist/
+build/
+coverage/
+*.tsbuildinfo
+
+# Rust (if adopted)
+target/
+
+# Local env and secrets
+.env
+.env.*
+!.env.example
+
+# Local agent settings
+.claude/settings.local.json
