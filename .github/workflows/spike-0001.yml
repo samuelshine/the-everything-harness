@@ -1,0 +1,55 @@
+name: spike-0001 (Bun runtime)
+
+on:
+  workflow_dispatch:
+  push:
+    paths: ["spikes/0001-bun-runtime/**", ".github/workflows/spike-0001.yml"]
+  pull_request:
+    paths: ["spikes/0001-bun-runtime/**", ".github/workflows/spike-0001.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  spike:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        working-directory: spikes/0001-bun-runtime
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.3
+      - name: Install bubblewrap (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
+          # Ubuntu 24.04 blocks unprivileged user namespaces by default; bwrap needs them.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+      - run: npm ci --ignore-scripts --no-audit --no-fund
+      - run: bun run build && bun run build:mcp
+      - name: Run checks
+        run: |
+          ext=""; [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
+          ./dist/spike$ext all | tee report.json
+      - name: Summary
+        if: always()
+        run: |
+          echo "### ${{ matrix.os }}" >> "$GITHUB_STEP_SUMMARY"
+          echo '```json' >> "$GITHUB_STEP_SUMMARY"
+          cat report.json >> "$GITHUB_STEP_SUMMARY" || true
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: spike-0001-${{ matrix.os }}
+          path: spikes/0001-bun-runtime/report.json

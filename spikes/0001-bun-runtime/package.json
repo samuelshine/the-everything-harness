@@ -1,0 +1,20 @@
+{
+  "name": "spike-0001-bun-runtime",
+  "private": true,
+  "type": "module",
+  "description": "ADR-0001 validation spike: Bun single-binary, inline renderer, sandbox, SDKs",
+  "scripts": {
+    "build": "bun build src/main.ts --compile --outfile dist/spike",
+    "build:mcp": "bun build src/mcp-server.ts --compile --outfile dist/mcp-server",
+    "spike": "bun run build && bun run build:mcp && ./dist/spike all"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "0.135.0",
+    "@modelcontextprotocol/sdk": "1.32.1",
+    "openai": "7.38.0",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "bun": "1.4.3"
+  }
+}
