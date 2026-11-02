@@ -35,7 +35,8 @@ jobs:
           sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
           # Ubuntu 24.04 blocks unprivileged user namespaces by default; bwrap needs them.
           sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
-      - run: npm ci --ignore-scripts --no-audit --no-fund
+      # Omit dev deps: the local `bun` package would shadow setup-bun on PATH.
+      - run: npm ci --ignore-scripts --omit=dev --no-audit --no-fund
       - run: bun run build && bun run build:mcp
       - name: Run checks
         run: |
