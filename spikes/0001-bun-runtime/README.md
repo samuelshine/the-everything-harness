@@ -29,8 +29,14 @@ CI runs the same checks on Ubuntu, macOS and Windows: `.github/workflows/spike-0
 | 3. Sandbox (`sandbox-exec`) | Write inside ✅ · write outside denied ✅ · network denied ✅ · reads ✅ |
 | 4. SDKs | MCP stdio client↔server ✅ · Anthropic SDK ✅ (no key: transport only) · OpenAI SDK ✅ (no key: transport only) |
 
-### Linux / Windows
-Pending: see the CI run for this branch.
+### CI (GitHub-hosted runners), run 41410693780, Bun 1.4.3
+| Runner | Binary | Cold start median / p90 | Sandbox | SDKs + MCP |
+|---|---|---|---|---|
+| macOS (arm64) | 69.6 MiB | 52.1 / 62.3 ms | ✅ all 4 | ✅ |
+| Ubuntu (x64, bwrap) | 88.6 MiB | 114.9 / 153.1 ms | ✅ all 4 | ✅ |
+| Windows (x64) | 93.9 MiB | 70.8 / 86.7 ms | skipped (out of scope) | ✅ |
+
+Renderer numbers are identical on every OS (4.3 MiB inline vs 8.3 MiB naive), as expected, since they are computed rather than measured on a terminal. All cold starts are well under the 300 ms target. CI runners are noisier and slower than a local machine.
 
 ### Still to do by hand
 - `render-demo` in iTerm2, Terminal.app, tmux and Windows Terminal (and VS Code's terminal).
@@ -39,4 +45,6 @@ Pending: see the CI run for this branch.
 ## Findings so far
 - **Binary size (~70 MiB)** is the main cost of Bun `--compile`, because it embeds the runtime. Acceptable for a CLI (Claude Code and Codex ship binaries of similar order), but worth tracking. Two binaries means ~140 MiB; ship one binary with subcommands in the real product.
 - **macOS sandbox profiles need real paths.** `/var` → `/private/var` symlinks made the workspace write fail until the paths were resolved with `realpath`. The real sandbox layer must canonicalise every path before generating policy.
+- **Linux needs unprivileged user namespaces.** Ubuntu 24.04 restricts them via AppArmor, so the workflow relaxes `kernel.apparmor_restrict_unprivileged_userns`. Real users on such distros will hit this. The harness must detect it and explain the fix, or fall back to a container.
+- **Windows has no sandbox story yet.** That is expected (doc 10 §4) and needs its own ADR.
 - The diffing renderer roughly halves terminal writes with a realistic live region (stream line + spinner + to-do panel + status). Its benefit grows with live-region size.
