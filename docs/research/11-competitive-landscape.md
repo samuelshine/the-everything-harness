@@ -250,6 +250,7 @@
 - New CVEs on coding agents (NVD search: claude-code, codex, gemini-cli, cursor).
 - ACP adoption by editors; Agent Skills adoption.
 - Pricing and quota changes across subscriptions.
+- Provider rules on subscription use by third-party tools: Anthropic's ban [LLM-11, LLM-13] and OpenAI's Sign in with ChatGPT eligibility [LLM-14, LLM-15]. See [ADR-0009](../adr/0009-provider-auth-and-subscriptions.md).
 
 <!-- SOURCES:CMP -->
 ## Sources

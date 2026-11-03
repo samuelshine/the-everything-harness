@@ -46,6 +46,19 @@ Key rules:
 5. Build **contract tests** per adapter: the same scripted conversation (tools, parallel calls, images, errors) must produce equivalent canonical items.
 6. Defer learned routing. Start with role-based assignment plus cascade-on-failed-verification.
 
+## Authentication and subscriptions
+Users often already pay for a Claude or ChatGPT subscription. Whether a third-party harness may spend it depends on the provider (checked 2026-11-03; decision in [ADR-0009](../adr/0009-provider-auth-and-subscriptions.md)):
+
+| Provider | In our own loop | Via the provider's own agent |
+|---|---|---|
+| **Anthropic** (Pro/Max) | **Not allowed.** Subscription OAuth is reserved for Claude Code and Anthropic apps; third parties may not offer Claude.ai login, route requests through plan credentials, or store Claude.ai tokens, and this includes Agent SDK products [LLM-11, LLM-12]. Enforced with bans since January 2026 [LLM-13]. Use API keys or a cloud provider. | **Allowed:** a user may sign in to the *unmodified* `claude` binary, even when another product runs it [LLM-11]. We delegate tasks to it (headless or ACP) without touching its credentials. |
+| **OpenAI** (Plus/Pro) | **Allowed for open-source, locally hosted apps** through Sign in with ChatGPT plan usage: dynamic client registration with PKCE, no client secret [LLM-14, LLM-15, LLM-16]. Restricted Responses profile: `store:false`, `stream:true`, full history in `input`, no sampling params, no hosted tools [LLM-17]. Commercial or hosted apps need partner approval. | **Allowed:** delegate to the user's installed `codex` (app-server or `exec`) [LLM-19, LLM-20], or run app-server on our own plan token [LLM-18]. |
+
+Rules that follow:
+- **Never borrow a first-party login.** Do not read `~/.claude/` or `~/.codex/auth.json`, and do not copy client IDs or user agents.
+- **Treat "ChatGPT plan" as a request profile on the OpenAI adapter**, with its own contract tests, rather than as a separate provider.
+- **Show the auth route in the UI**, so users know whether usage hits an API bill or their plan's limits.
+
 ## Open questions
 - Use the provider's server-side state (Responses `previous_response_id`) or always send the full history? *Lean:* send full history, because it's portable and auditable; use server-side state only as an optimisation.
 - How should switching models mid-session be handled when reasoning items can't transfer?
@@ -65,4 +78,15 @@ Key rules:
 | LLM-08 | [RouteLLM: Learning to Route LLMs with Preference Data](https://arxiv.org/abs/2406.18665) | Ong et al. (LMSYS, UC Berkeley, Anyscale) | 2024-06 | Should read |
 | LLM-09 | [FrugalGPT: How to Use LLMs While Reducing Cost and Improving Performance](https://arxiv.org/abs/2305.05176) | Chen, Zaharia, Zou (Stanford) | 2023-05-09 | Should read |
 | LLM-10 | [vLLM OpenAI-compatible server](https://docs.vllm.ai/en/latest/serving/openai_compatible_server.html) | vLLM project | current | Optional |
+| LLM-11 | [Claude Code legal and compliance: authentication and credential use](https://code.claude.com/docs/en/legal-and-compliance) | Anthropic | 2026 | Must read |
+| LLM-12 | [Agent SDK overview (authentication note)](https://code.claude.com/docs/en/agent-sdk/overview) | Anthropic | 2026 | Should read |
+| LLM-13 | [Anthropic clarifies ban on third-party tool access to Claude](https://www.theregister.com/software/2026/02/20/anthropic-clarifies-ban-on-third-party-tool-access-to-claude/5014546) | The Register | 2026-02 | Should read |
+| LLM-14 | [Sign in with ChatGPT: quickstart](https://developers.openai.com/siwc/quickstart) | OpenAI | 2026 | Must read |
+| LLM-15 | [ChatGPT plan usage for open-source apps (overview)](https://developers.openai.com/siwc/token-sharing-open-source) | OpenAI | 2026 | Must read |
+| LLM-16 | [Sign in with ChatGPT: registration and sign-in (open source)](https://developers.openai.com/siwc/token-sharing-open-source/sign-in) | OpenAI | 2026 | Should read |
+| LLM-17 | [Sign in with ChatGPT: preview limitations](https://developers.openai.com/siwc/token-sharing-open-source/preview-limitations) | OpenAI | 2026 | Must read |
+| LLM-18 | [Sign in with ChatGPT: Codex app-server configuration](https://developers.openai.com/siwc/token-sharing-open-source/codex-app-server) | OpenAI | 2026 | Should read |
+| LLM-19 | [Codex authentication](https://learn.chatgpt.com/docs/auth) | OpenAI | 2026 | Should read |
+| LLM-20 | [Unlocking the Codex harness: the App Server](https://openai.com/index/unlocking-the-codex-harness) | OpenAI | 2026-02 | Should read |
+| LLM-21 | [Using your ChatGPT plan in other apps and sites](https://help.openai.com/en/articles/20001542) | OpenAI | 2026 | Optional |
 <!-- /SOURCES -->

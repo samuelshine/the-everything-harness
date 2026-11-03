@@ -228,6 +228,7 @@ Codex-style **profiles** (named bundles of provider + model + sandbox + approval
 ## 11. IDE, remote and other surfaces
 - **ACP server mode**, so Zed, JetBrains and Neovim can host the agent [MCP-12, CMP-30]. A VS Code extension can be a thin ACP or local-server client [TRM-17].
 - Remote: works over SSH; optional server mode (OpenCode-style [CMP-20]) to drive a session from another device.
+- **Other agents as backends:** the user's installed Claude Code (headless `-p` stream-json [TRM-06] or ACP) and Codex (app-server) can run delegated tasks under their own subscription logins. This is how Claude subscribers use their plan with us. See [02](02-multi-llm-providers.md#authentication-and-subscriptions) and [ADR-0009](../adr/0009-provider-auth-and-subscriptions.md).
 
 ## 12. Observability, cost and support
 - `/cost`, a per-session ledger, and provider cache hit/miss stats (doc 03).
@@ -261,7 +262,7 @@ A terminal-first product raises the weight of **single-binary distribution, star
 - *Lean:* **TypeScript on Bun** for velocity, with a strict engine/TUI split and a language-neutral event protocol so a Rust core stays possible later.
 
 ## Open questions
-- Do we support subscription logins (e.g. via provider OAuth), or BYO keys only? Check each provider's terms.
+- ~~Do we support subscription logins, or BYO keys only?~~ Resolved in [ADR-0009](../adr/0009-provider-auth-and-subscriptions.md): ChatGPT plan via Sign in with ChatGPT (open-source route); Claude subscriptions only by delegating to the user's own Claude Code.
 - Default approval mode: `default` (prompts), or sandboxed `auto` with a reviewer agent [TRM-19]?
 - How much of Claude Code's CLI flag surface do we mirror verbatim to ease switching?
 

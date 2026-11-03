@@ -19,3 +19,4 @@ These decisions are open, with the research's current lean. Sources are in [synt
 | 0006 | Memory backend | Files and grep first; pluggable store behind a memory tool |
 | 0007 | Multi-agent default | Single writer; parallel subagents for read-heavy work only |
 | 0008 | Default approval posture | Sandboxed workspace-write; prompt only for escapes |
+| [0009](0009-provider-auth-and-subscriptions.md) (Proposed) | Provider authentication and subscription access | API keys everywhere; ChatGPT plan via Sign in with ChatGPT (open-source route); Claude subscriptions only through the user's own Claude Code; never reuse first-party logins |
