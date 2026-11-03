@@ -3,7 +3,7 @@
 A model-agnostic, **terminal-first** agent harness. You should be able to use it the way you use Claude Code: start it in a repo, talk to it, and let it read, edit and run things under rules you control. It handles context, tools, memory, skills, plugins/MCP, delegation, verification and safety, and works across LLM providers.
 
 ## Status
-**Early development.** The workspace is set up (Bun + TypeScript, ADR-0001); the agent itself is not built yet. Background reading:
+**Early development.** Headless mode (`teh -p`) works with local models through [Ollama](https://ollama.com): it reads, searches, edits and runs commands under permission rules, and logs each session. There is no interactive UI, no cloud providers and no undo yet. Background reading:
 - [Product brief](docs/product.md): name, audience, and the product decisions so far.
 - [Synthesis](docs/research/00-synthesis.md): principles, reference architecture, build order, open decisions.
 - [Terminal harness requirements](docs/research/10-terminal-harness.md): what "usable like Claude Code" means, feature by feature.
@@ -39,6 +39,20 @@ bun run check        # lint + typecheck + tests (what CI runs)
 bun run build        # compile packages/cli/dist/teh
 bun packages/cli/src/main.ts --help   # run from source
 ```
+
+## Try it (free, local)
+```bash
+ollama pull gemma4:e4b        # any Ollama model with tool calling works; this one behaves well
+bun run build
+packages/cli/dist/teh models  # list local models and whether they support tools
+packages/cli/dist/teh -p --model ollama:gemma4:e4b "What does this repo do?"
+```
+`teh` asks before every change by default (ADR-0008). Headless mode cannot ask, so it denies those actions and tells you which flags would allow them:
+- `--permission-mode acceptEdits` allows file edits inside the workspace.
+- `--allowedTools "Bash(npm test)"` allows that exact command. Rules match whole commands only for now.
+- `--disallowedTools Bash` blocks a tool entirely. Deny rules win over everything.
+
+Other flags: `--output-format text|json|stream-json`, `--max-turns`, `--add-dir`. The model can also come from `TEH_MODEL`. Ollama is found through `OLLAMA_HOST`, and `TEH_OLLAMA_NUM_CTX` sets the context window (default 65536, capped at the model's maximum). Sessions are saved as JSONL under `~/.teh/projects/` (ADR-0004). `teh` reads `AGENTS.md` and `CLAUDE.md` like Claude Code does.
 
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md).
