@@ -35,7 +35,7 @@ Option 3.
 5. **The interface is honest about who is doing the work.** The status line names the auth route ("API key", "ChatGPT plan", "via Claude Code"). A delegated run is labelled as such, because its tools, permissions and sandbox are the backend's, not ours.
 
 ## Consequences
-- **Prerequisite:** ChatGPT plan usage depends on the project being open source and locally hosted [LLM-15]. The repository is currently private with no license, so either we choose an OSI license before shipping this feature, or we use OpenAI's interest form [LLM-15]. This is a separate, user-owned decision.
+- **Prerequisite:** ChatGPT plan usage depends on the project being open source and locally hosted [LLM-15]. Met on 2026-11-03: the repository is public and licensed Apache-2.0. If we ever ship a paid or hosted version, it needs OpenAI's interest form [LLM-15].
 - **Delegated runs sit outside our safety model.** Checkpoints still work, because shadow-git snapshots the workspace before and after the run. Our permission rules, sandbox and per-tool events do not apply inside the run. Mitigations:
   - run the backend in our OS sandbox where it allows;
   - map its approval requests (Codex app-server sends them as server requests [LLM-20]; ACP has permission requests) into our approval UI;
