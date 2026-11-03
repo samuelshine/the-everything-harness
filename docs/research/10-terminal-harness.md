@@ -38,7 +38,7 @@ engine    │ session mgr · loop · tools · permissions · sandbox │
 | Capability | Pri | Notes / evidence |
 |---|---|---|
 | Start in cwd, detect git root, **workspace-trust prompt** on first run in a folder | P0 | Repo-supplied allow rules, env and MCP servers must wait for trust [TRM-03]. Codex defaults non-git folders to read-only [TRM-19]. |
-| Auth: API keys per provider, env vars, key helper command, OS keychain | P0 | BYO key is a positioning advantage [CMP-04, CMP-05]. |
+| Auth: API keys per provider, env vars, key helper command, OS keychain; local endpoints need none | P0 | BYO key is a positioning advantage [CMP-04, CMP-05]. |
 | `/init` generates `AGENTS.md` (read `CLAUDE.md`/`GEMINI.md` as aliases) | P0 | AGENTS.md is the cross-vendor standard [SKL-07]; OpenCode, Codex and others use it [CMP-20]. |
 | Sessions persisted as **append-only JSONL** (messages, tool calls, results, checkpoints, cost) | P0 | Gives continue, resume, fork, audit and evals for free. pi documents its format for post-processing [TRM-32]. |
 | `-c` continue, `-r` resume by id/name, `/resume` picker, **fork/branch** a session | P0/P1 | [TRM-07, TRM-32] |
@@ -53,6 +53,8 @@ engine    │ session mgr · loop · tools · permissions · sandbox │
 | To-do list tool shown in the status area | P0 | Keeps the plan near the end of context. Factory credits a planning tool [CMP-16]. |
 | **Plan mode** (read-only exploration → proposed plan → approve) | P0 | Every major tool has it [TRM-04, CMP-20, CMP-23, CMP-26]. pi uses PLAN.md files instead, which is also valid [TRM-32]. Persist the plan to a file either way. |
 | Model switch and effort/thinking toggle mid-session | P0 | Warn that switching models drops the prompt cache [TRM-03]. Effort defaults matter: lowering the default effort was a quality regression [CMP-02]. |
+| Model policy: roles (`main`/`plan`/`fast`/`explore`/`compact`/`judge`), task triage S/M/L, escalate on failed verification; model and reason shown in the status line; `/model` pin wins | P1 | Route only at task boundaries; switching mid-task forfeits the cache [PERF-01]. Off by default until evals beat a single mid-tier model [RTE-03, RTE-04]. See doc 12 |
+| Local models: Ollama (native API, `num_ctx`), LM Studio, llama.cpp, vLLM via OpenAI-compatible adapter; port discovery; capability probe; `--local-only` | P0 | Default Ollama context (4k under 24 GiB VRAM) breaks agents; detect and explain [RTE-08, RTE-10]. Also lets development run without paid keys. See doc 12 |
 | Max turns, per-session budget (tokens/$), hard stop | P1 | Cost surprises drove backlash [CMP-05]. |
 | Background tasks (long bash, dev servers, subagents) with a `/tasks` view, kill and cleanup | P1 | Factory's background primitive tracks spawned processes for cleanup [CMP-16]. pi's critique: background bash is opaque and forgotten after compaction, so show it and persist it [TRM-32]. |
 | Runtime awareness: elapsed time, short default timeouts with opt-in long ones | P1 | Factory's speed gains came partly from this [CMP-16]. |
