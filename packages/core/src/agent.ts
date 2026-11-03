@@ -38,6 +38,8 @@ export type AgentOptions = {
   signal?: AbortSignal;
   onEvent?: (e: AgentEvent) => void;
   userInstructionsFile?: string;
+  // Earlier conversation when resuming a session (ADR-0004); the prompt is appended to it.
+  history?: Item[];
   // Called once, before the first change of the run (ADR-0004). Returns the checkpoint id.
   checkpoint?: () => Promise<string>;
 };
@@ -95,9 +97,10 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     model: opts.model,
     permissionMode: opts.permissions.mode,
     instructionFiles: instructions.map((f) => f.path),
+    resumed: (opts.history?.length ?? 0) > 0,
   });
 
-  const items: Item[] = [{ kind: "text", role: "user", text: opts.prompt }];
+  const items: Item[] = [...(opts.history ?? []), { kind: "text", role: "user", text: opts.prompt }];
   log?.append("user_message", { text: opts.prompt });
 
   let usage = emptyUsage();

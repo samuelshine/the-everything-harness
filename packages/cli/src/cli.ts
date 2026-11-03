@@ -8,6 +8,9 @@ import {
   CheckpointStore,
   createProvider,
   findProjectRoot,
+  findSession,
+  type LoadedSession,
+  listSessions,
   PERMISSION_MODES,
   type PermissionMode,
   type Provider,
@@ -36,14 +39,17 @@ export type Deps = { provider?: (name: string) => Provider };
 
 export const USAGE = `Usage: teh -p [options] [prompt]
        teh models
-       teh checkpoints | teh undo | teh restore <id>
+       teh sessions | teh checkpoints | teh undo | teh restore <id>
 
 Run one prompt headlessly and print the result. The prompt can also be piped on stdin.
 The interactive terminal UI is not built yet.
 
 Options:
   -p, --print                   Run headlessly (required for now)
-  --model <provider:model>      Model to use, e.g. ollama:qwen2.5:14b (or set TEH_MODEL)
+  -c, --continue                Continue the most recent session in this project
+  -r, --resume <id>             Continue a session by id (or prefix); \`teh sessions\` lists them
+  --model <provider:model>      Model to use, e.g. ollama:gemma4:e4b (or set TEH_MODEL; a resumed
+                                session keeps its model unless you pass one)
   --output-format <format>      text (default), json or stream-json
   --permission-mode <mode>      default (ask; denied when headless), acceptEdits, plan, bypassPermissions
   --allowedTools <rules...>     Allow without asking, e.g. "Edit" "Bash(npm test)"
@@ -56,6 +62,7 @@ Options:
 
 Commands:
   models                        List local Ollama models and whether they support tools
+  sessions                      List this project's sessions, newest first
   checkpoints                   List file snapshots taken before each run changed anything
   undo                          Put files back as they were before the last run that changed them
   restore <id>                  Put files back to a checkpoint (undo a restore with the id it prints)
@@ -81,6 +88,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   }
   if (positionals[0] === "models") return listModels(io, makeProvider);
   if (positionals[0] === "checkpoints") return listCheckpoints(io);
+  if (positionals[0] === "sessions") return printSessions(io);
   if (positionals[0] === "undo") return restore(io, undefined, v.yes ?? false);
   if (positionals[0] === "restore") {
     if (!positionals[1]) return usageError(io, "restore needs a checkpoint id; `teh checkpoints` lists them");
@@ -107,7 +115,20 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   const prompt = positionals.join(" ").trim() || (await io.stdin())?.trim();
   if (!prompt) return usageError(io, "no prompt given");
 
-  const modelSpec = v.model ?? io.env.TEH_MODEL;
+  const root = findProjectRoot(io.cwd);
+  const home = tehHome(io.env);
+  let resumed: LoadedSession | undefined;
+  if (v.continue && v.resume) return usageError(io, "use either --continue or --resume, not both");
+  if (v.continue) {
+    const latest = listSessions(home, root)[0];
+    if (!latest) return usageError(io, "no earlier session in this project to continue");
+    resumed = findSession(home, root, latest.id);
+  } else if (v.resume) {
+    resumed = findSession(home, root, v.resume);
+    if (!resumed) return usageError(io, `no single session matches ${v.resume}; \`teh sessions\` lists them`);
+  }
+
+  const modelSpec = v.model ?? resumed?.model ?? io.env.TEH_MODEL;
   if (!modelSpec) {
     io.err(
       "teh: no model selected\n  fix: pass --model ollama:<name> or set TEH_MODEL; `teh models` lists local models\n",
@@ -129,9 +150,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     }
     for (const note of probe.notes) io.err(`teh: warning: ${note}\n`);
 
-    const root = findProjectRoot(io.cwd);
-    const session = new SessionLog(tehHome(io.env), root);
-    const store = new CheckpointStore(tehHome(io.env), root);
+    const session = new SessionLog(home, root, undefined, resumed);
+    const store = new CheckpointStore(home, root);
     const denied: string[] = [];
     const text = textOutput(io, denied);
     const checkpoint = { taken: false };
@@ -158,6 +178,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
         if (e.type === "checkpoint") checkpoint.taken = true;
         onEvent(e);
       },
+      ...(resumed ? { history: resumed.items } : {}),
       checkpoint: async () => (await store.snapshot("turn", session.id, prompt)).sha,
     });
 
@@ -214,6 +235,8 @@ function parse(argv: string[]) {
       "add-dir": { type: "string", multiple: true },
       "max-turns": { type: "string" },
       yes: { type: "boolean", short: "y" },
+      continue: { type: "boolean", short: "c" },
+      resume: { type: "string", short: "r" },
       version: { type: "boolean", short: "v" },
       help: { type: "boolean", short: "h" },
     },
@@ -356,4 +379,21 @@ async function restore(io: Io, ref: string | undefined, yes: boolean): Promise<n
     }
     throw e;
   }
+}
+
+function printSessions(io: Io): number {
+  const root = findProjectRoot(io.cwd);
+  const all = listSessions(tehHome(io.env), root);
+  if (all.length === 0) {
+    io.out("No sessions yet in this project.\n");
+    return 0;
+  }
+  io.out(`Sessions for ${root} (newest first; continue one with \`teh -p -r <id> "..."\`):\n`);
+  for (const s of all) {
+    const first = s.firstPrompt.replace(/\s+/g, " ");
+    const label = first.length > 60 ? `${first.slice(0, 59)}…` : first;
+    const n = `${s.prompts} prompt${s.prompts === 1 ? "" : "s"}`;
+    io.out(`  ${s.id.slice(0, 18)}  ${when(s.updated)}  ${n.padEnd(10)}  ${(s.model ?? "").padEnd(22)}  ${label}\n`);
+  }
+  return 0;
 }

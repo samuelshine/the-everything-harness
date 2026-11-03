@@ -52,6 +52,8 @@ packages/cli/dist/teh -p --model ollama:gemma4:e4b "What does this repo do?"
 - `--allowedTools "Bash(npm test)"` allows that exact command. Rules match whole commands only for now.
 - `--disallowedTools Bash` blocks a tool entirely. Deny rules win over everything.
 
+Each run is saved as a session. `teh -p -c "..."` continues the most recent one with its full conversation and model. `teh sessions` lists them, and `teh -p -r <id> "..."` continues a specific one.
+
 Before a run changes anything, `teh` snapshots the project into a separate shadow git repository under `~/.teh` (ADR-0004). It never touches your own `.git`. This covers changes made by shell commands too.
 - `teh undo` puts files back as they were before the last run that changed them, after showing what will change. Run it again to step further back.
 - `teh checkpoints` lists snapshots, and `teh restore <id>` returns to any of them. Every restore prints an id that undoes it.
