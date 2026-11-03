@@ -1,0 +1,21 @@
+import type { ModelRequest, StreamEvent } from "../types";
+
+export type ModelInfo = {
+  id: string;
+  contextWindow?: number;
+  supportsTools?: boolean;
+};
+
+export type ProbeResult = {
+  supportsTools: boolean;
+  // The context window the runtime will actually use for our requests.
+  contextWindow?: number;
+  notes: string[];
+};
+
+export interface Provider {
+  readonly id: string;
+  listModels(): Promise<ModelInfo[]>;
+  probe(model: string): Promise<ProbeResult>;
+  stream(req: ModelRequest, signal?: AbortSignal): AsyncIterable<StreamEvent>;
+}
