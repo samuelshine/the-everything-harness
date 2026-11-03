@@ -1,6 +1,6 @@
 # 0009 — Provider authentication and subscription access
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-03
 - **Deciders:** Samuel Shine
 - **Related research:** `docs/research/02-multi-llm-providers.md` (Authentication and subscriptions), `docs/research/10-terminal-harness.md` §11, sources [LLM-11]–[LLM-21], [TRM-06], [MCP-12], [CMP-30]

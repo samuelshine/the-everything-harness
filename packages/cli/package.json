@@ -4,10 +4,10 @@
   "private": true,
   "type": "module",
   "bin": {
-    "harness": "./src/main.ts"
+    "teh": "./src/main.ts"
   },
   "scripts": {
-    "build": "bun build src/main.ts --compile --outfile dist/harness"
+    "build": "bun build src/main.ts --compile --outfile dist/teh"
   },
   "dependencies": {
     "@everything-harness/core": "workspace:*"

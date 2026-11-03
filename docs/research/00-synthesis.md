@@ -90,8 +90,8 @@ These are open decisions for you. The research gives a lean, not a final answer.
 4. **Multi-agent default.** *Lean:* single writer by default; parallel subagents only for research and verification [AGT-03, CTX-19].
 5. **Security posture.** Which sandbox (macOS Seatbelt / Linux bubblewrap / containers) and whether network egress is allow-listed by default. *Lean:* yes, allow-list by default [OTH-04].
 
-6. **Default approval posture.** Prompt-by-default, or sandboxed auto mode with a reviewer agent [TRM-19, TRM-04]? *Lean:* sandboxed `workspace-write` + prompts only for escapes, as Codex does.
-7. **Subscription access.** Can users spend a Claude or ChatGPT subscription? *Proposed:* ChatGPT plan through Sign in with ChatGPT (needs an open-source repo); Claude only by delegating to the user's own Claude Code; never reuse first-party logins [LLM-11, LLM-15]. See [ADR-0009](../adr/0009-provider-auth-and-subscriptions.md).
+6. **Default approval posture.** Prompt-by-default, or sandboxed auto mode with a reviewer agent [TRM-19, TRM-04]? *Lean was:* sandboxed `workspace-write` + prompts only for escapes, as Codex does. *Decided:* ask before every change, with the sandbox still on underneath ([ADR-0008](../adr/0008-default-approval-posture.md)).
+7. **Subscription access.** Can users spend a Claude or ChatGPT subscription? *Accepted:* ChatGPT plan through Sign in with ChatGPT (needs an open-source repo); Claude only by delegating to the user's own Claude Code; never reuse first-party logins [LLM-11, LLM-15]. See [ADR-0009](../adr/0009-provider-auth-and-subscriptions.md).
 
 ## 6. What's moving fast (re-check quarterly)
 
