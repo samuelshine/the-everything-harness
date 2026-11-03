@@ -3,7 +3,7 @@
 A model-agnostic, **terminal-first** agent harness. You should be able to use it the way you use Claude Code: start it in a repo, talk to it, and let it read, edit and run things under rules you control. It handles context, tools, memory, skills, plugins/MCP, delegation, verification and safety, and works across LLM providers.
 
 ## Status
-**Early development.** Headless mode (`teh -p`) works with local models through [Ollama](https://ollama.com): it reads, searches, edits and runs commands under permission rules, and logs each session. There is no interactive UI, no cloud providers and no undo yet. Background reading:
+**Early development.** Headless mode (`teh -p`) works with local models through [Ollama](https://ollama.com): it reads, searches, edits and runs commands under permission rules, and logs each session. `teh undo` reverts a run's file changes. There is no interactive UI and no cloud providers yet. Background reading:
 - [Product brief](docs/product.md): name, audience, and the product decisions so far.
 - [Synthesis](docs/research/00-synthesis.md): principles, reference architecture, build order, open decisions.
 - [Terminal harness requirements](docs/research/10-terminal-harness.md): what "usable like Claude Code" means, feature by feature.
@@ -51,6 +51,11 @@ packages/cli/dist/teh -p --model ollama:gemma4:e4b "What does this repo do?"
 - `--permission-mode acceptEdits` allows file edits inside the workspace.
 - `--allowedTools "Bash(npm test)"` allows that exact command. Rules match whole commands only for now.
 - `--disallowedTools Bash` blocks a tool entirely. Deny rules win over everything.
+
+Before a run changes anything, `teh` snapshots the project into a separate shadow git repository under `~/.teh` (ADR-0004). It never touches your own `.git`. This covers changes made by shell commands too.
+- `teh undo` puts files back as they were before the last run that changed them, after showing what will change. Run it again to step further back.
+- `teh checkpoints` lists snapshots, and `teh restore <id>` returns to any of them. Every restore prints an id that undoes it.
+- Ignored files (`.gitignore`, `.teh/checkpoint-ignore`) and files over 10 MB are not snapshotted and are never overwritten by a restore.
 
 Other flags: `--output-format text|json|stream-json`, `--max-turns`, `--add-dir`. The model can also come from `TEH_MODEL`. Ollama is found through `OLLAMA_HOST`, and `TEH_OLLAMA_NUM_CTX` sets the context window (default 65536, capped at the model's maximum). Sessions are saved as JSONL under `~/.teh/projects/` (ADR-0004). `teh` reads `AGENTS.md` and `CLAUDE.md` like Claude Code does.
 

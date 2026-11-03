@@ -7,5 +7,13 @@ const code = await run(process.argv.slice(2), {
   env: process.env,
   cwd: process.cwd(),
   stdin: async () => (process.stdin.isTTY ? undefined : await Bun.stdin.text()),
+  ...(process.stdin.isTTY
+    ? {
+        confirm: async (question: string) => {
+          const answer = prompt(`${question} [y/N]`);
+          return /^y(es)?$/i.test(answer?.trim() ?? "");
+        },
+      }
+    : {}),
 });
 process.exit(code);

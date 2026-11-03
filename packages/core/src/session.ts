@@ -1,5 +1,5 @@
 // Append-only JSONL session log (ADR-0004). One event per line; `parent` links make
-// the log a tree so rewind and fork never rewrite history. Checkpoints come next.
+// the log a tree so rewind and fork never rewrite history. File checkpoints: checkpoints.ts.
 import { createHash } from "node:crypto";
 import { appendFileSync, chmodSync, mkdirSync } from "node:fs";
 import { homedir, userInfo } from "node:os";
@@ -16,6 +16,7 @@ export type SessionEventType =
   | "approval"
   | "model_change"
   | "usage"
+  | "checkpoint"
   | "error"
   | "session_end";
 

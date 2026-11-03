@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, realpathSync } from "node:fs";
+import { mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callTool, FakeProvider, type FakeTurn, type Provider, say, VERSION } from "@everything-harness/core";
@@ -7,11 +7,20 @@ import { type Deps, run, USAGE } from "../src/cli";
 
 const temp = () => realpathSync(mkdtempSync(join(tmpdir(), "teh-cli-")));
 
-async function call(argv: string[], opts: { turns?: FakeTurn[]; stdin?: string; env?: Record<string, string> } = {}) {
+type CallOpts = {
+  turns?: FakeTurn[];
+  stdin?: string;
+  env?: Record<string, string>;
+  cwd?: string;
+  home?: string;
+  confirm?: boolean;
+};
+
+async function call(argv: string[], opts: CallOpts = {}) {
   let out = "";
   let err = "";
-  const cwd = temp();
-  const home = temp();
+  const cwd = opts.cwd ?? temp();
+  const home = opts.home ?? temp();
   const fake = new FakeProvider(opts.turns ?? []);
   const deps: Deps = { provider: () => fake as Provider };
   const code = await run(
@@ -22,6 +31,7 @@ async function call(argv: string[], opts: { turns?: FakeTurn[]; stdin?: string; 
       env: { TEH_HOME: home, ...opts.env },
       cwd,
       stdin: async () => opts.stdin,
+      ...(opts.confirm === undefined ? {} : { confirm: async () => opts.confirm as boolean }),
     },
     deps,
   );
@@ -134,5 +144,60 @@ describe("teh cli", () => {
     );
     expect(code).toBe(1);
     expect(err).toContain("does not support tool calling");
+  });
+
+  describe("undo", () => {
+    async function editedProject() {
+      const cwd = temp();
+      const home = temp();
+      writeFileSync(join(cwd, "a.txt"), "original");
+      const r = await call(["-p", "--model", "fake:fake", "--permission-mode", "acceptEdits", "change it"], {
+        cwd,
+        home,
+        turns: [
+          callTool("Read", { file_path: "a.txt" }),
+          callTool("Write", { file_path: "a.txt", content: "changed" }),
+          callTool("Write", { file_path: "new.txt", content: "new" }),
+          say("done"),
+        ],
+      });
+      expect(r.err).toContain("teh undo");
+      expect(readFileSync(join(cwd, "a.txt"), "utf8")).toBe("changed");
+      return { cwd, home };
+    }
+
+    test("undo --yes puts files back and prints how to redo", async () => {
+      const { cwd, home } = await editedProject();
+      const list = await call(["checkpoints"], { cwd, home });
+      expect(list.out).toContain("change it");
+      const r = await call(["undo", "--yes"], { cwd, home });
+      expect(r.code).toBe(0);
+      expect(r.out).toContain("restore  a.txt");
+      expect(r.out).toContain("delete   new.txt");
+      expect(readFileSync(join(cwd, "a.txt"), "utf8")).toBe("original");
+      expect(readdirSync(cwd)).toEqual(["a.txt"]);
+
+      const redo = r.out.match(/teh restore ([0-9a-f]+)/)?.[1] as string;
+      expect((await call(["restore", redo, "--yes"], { cwd, home })).code).toBe(0);
+      expect(readFileSync(join(cwd, "a.txt"), "utf8")).toBe("changed");
+    });
+
+    test("undo asks first and changes nothing on no", async () => {
+      const { cwd, home } = await editedProject();
+      const r = await call(["undo"], { cwd, home, confirm: false });
+      expect(r.out).toContain("Nothing changed");
+      expect(readFileSync(join(cwd, "a.txt"), "utf8")).toBe("changed");
+    });
+
+    test("undo without a terminal requires --yes", async () => {
+      const { cwd, home } = await editedProject();
+      const r = await call(["undo"], { cwd, home });
+      expect(r.code).toBe(2);
+      expect(r.err).toContain("--yes");
+    });
+
+    test("undo with no history says so", async () => {
+      expect((await call(["undo", "--yes"])).out).toContain("Nothing to undo");
+    });
   });
 });
