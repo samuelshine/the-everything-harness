@@ -30,7 +30,7 @@ Anonymous usage statistics are **on by default**, under these rules.
    - `TEH_TELEMETRY=0`;
    - the cross-tool `DO_NOT_TRACK=1`.
 
-   It is also off automatically when `CI` is set.
+   It is also off automatically when `CI` is set, and in **local-only mode** (`--local-only`, research doc 12 §4), whose promise is no network traffic beyond local model endpoints (decided 2026-11-03).
 6. **Transparency:**
    - every event type and field is listed in `docs/telemetry.md`;
    - the schema lives in code, and a test fails if an event carries a field that is not in the documented list;

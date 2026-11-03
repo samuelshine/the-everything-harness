@@ -36,7 +36,7 @@ The router is a layered **model policy** in the engine, between the agent loop a
 |---|---|---|---|
 | **1. Roles** (v1) | Config maps roles to models: `main`, `plan`, `fast` (titles, summaries, commit messages, classification), `explore` (read-only subagents), `compact`, `judge` | Fixed per role | Deterministic. Mirrors Claude Code's aliases and subagent models (ADR-0010) [RTE-01] |
 | **2. Task triage** (v1) | A cheap classifier assigns a new task or subagent a tier: **S / M / L** | At the start of a task or subagent | Rules first (prompt size, files and lines in scope, keywords such as "refactor" or "architecture", plan mode, repo size). Optional small model, possibly local [RTE-06] |
-| **3. Escalation** (v1) | Move up a tier, at the next task boundary | When verification fails: tests fail, the evaluator rejects, tool-call errors repeat, the model gives up | Escalate only; never downgrade mid-task. The cap and budget come from config |
+| **3. Escalation** (v1) | Move up a tier, at the next task boundary | When verification fails: tests fail, the evaluator rejects, tool-call errors repeat, the model gives up | Escalate only; never downgrade mid-task. **Asks first** (decided 2026-11-03): the prompt shows the current and proposed model and the reason. The cap and budget come from config |
 | **4. Effort** (v1) | Raise reasoning effort on the same model before switching model | Same triggers as escalation, tried first | Keeps the same provider and conversation. Changing thinking settings still invalidates part of the cache [PERF-01] |
 | **5. Learned policy** (later) | Per-task-type success and cost statistics from our own evals and (opt-in) usage | Replaces or tunes the triage rules | Addresses the "information deficit" [RTE-02]; needs data from phases 0 and 8 |
 
@@ -85,7 +85,7 @@ What this means for an agent harness:
    - a refusal with a clear fix (for example "set `OLLAMA_CONTEXT_LENGTH=65536`") when the window is too small to run at all.
 5. **Lean prompt profile for small models:** fewer tools loaded at once (tool search, doc 06), a shorter system prompt, and an edit format the model handles well (doc 10 §3).
 6. **Fallback tool calling:** for models without native tool calls, a prompted JSON tool-call format that is parsed and validated, clearly marked as lower reliability.
-7. **Local-only mode** (`--local-only` or a setting): network egress is limited to localhost model endpoints, and cloud providers and web tools are disabled. In this mode telemetry is **off** too, because a user who chose local-only expects no network traffic at all. This is a refinement of ADR-0011 to confirm.
+7. **Local-only mode** (`--local-only` or a setting): network egress is limited to localhost model endpoints, and cloud providers and web tools are disabled. In this mode telemetry is **off** too, because a user who chose local-only expects no network traffic at all. Decided 2026-11-03 and recorded in ADR-0011.
 8. **Timeouts and streaming tuned for slow hardware:** long first-token waits, a visible "loading model" state, and cancellation that actually stops generation.
 
 ## 5. How this changes the direction
@@ -120,7 +120,6 @@ How `teh` handles it:
 
 ## Open questions
 - Which features drive triage best for coding tasks? Start with rules and measure, then consider a small learned classifier (Arch-Router-style [RTE-06]).
-- Should escalation be automatic, or ask first? ADR-0008 favours asking. Proposed: ask the first time and offer "always escalate automatically".
 - Should `teh` bundle or recommend specific local models? Proposed: recommend by BFCL score and probe results, and never bundle weights.
 
 <!-- SOURCES:RTE -->
