@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { appendFileSync, readFileSync, statSync } from "node:fs";
-import { findSession, listSessions, loadSession, SessionLog } from "../src/session";
+import { conversationAt, findSession, listSessions, loadSession, type RewindPoint, SessionLog } from "../src/session";
 import { tempDir } from "./helpers";
 
 function session(home = tempDir(), root = tempDir()) {
@@ -70,5 +70,46 @@ describe("session replay", () => {
     expect(findSession(home, root, a.id.slice(0, 30))?.firstPrompt).toBe("older");
     expect(findSession(home, root, "")).toBeUndefined(); // ambiguous
     expect(listSessions(home, tempDir())).toEqual([]);
+  });
+});
+
+describe("rewind points", () => {
+  test("prompt points take the files from the next change; rewinds keep points and mark the skipped ones", () => {
+    const { log } = session();
+    log.append("user_message", { text: "one" });
+    const afterOne = log.lastEventId;
+    log.append("checkpoint", { sha: "s1", kind: "step", title: "Edit a", conversationAt: afterOne });
+    log.append("assistant_item", { kind: "text", role: "assistant", text: "did one" });
+    log.append("user_message", { text: "two" }); // no changes in prompt two
+    log.append("assistant_item", { kind: "text", role: "assistant", text: "did two" });
+
+    let s = loadSession(log.path);
+    expect(s.points.map((p) => [p.n, p.kind, p.prompt, p.sha])).toEqual([
+      [1, "prompt", 1, "s1"],
+      [2, "step", 1, "s1"],
+      [3, "prompt", 2, undefined], // teh changed nothing after it
+    ]);
+
+    // Conversation-only rewind to point 2: prompt two is set aside but stays listed.
+    log.append("checkpoint", { kind: "rewind", title: "Before rewinding to point 2", conversationAt: log.lastEventId });
+    log.append("rewind", { to: afterOne, scope: "conversation", point: 2 });
+    s = loadSession(log.path);
+    expect(s.items.map((i) => (i.kind === "text" ? i.text : i.kind))).toEqual(["one"]);
+    expect(s.points.map((p) => [p.n, p.rewound])).toEqual([
+      [1, false],
+      [2, false],
+      [3, true],
+      [4, false],
+    ]);
+    expect(conversationAt(log.path, s.points[3] as RewindPoint).map((i) => (i.kind === "text" ? i.text : ""))).toEqual([
+      "one",
+      "did one",
+      "two",
+      "did two",
+    ]);
+
+    // A code-only rewind leaves the conversation alone.
+    log.append("rewind", { to: null, scope: "code", point: 1 });
+    expect(loadSession(log.path).items).toHaveLength(1);
   });
 });

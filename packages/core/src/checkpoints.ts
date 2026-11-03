@@ -12,7 +12,8 @@ const REF = "refs/teh/checkpoints";
 // Kept out of snapshots of projects that are not git repos (git repos use their .gitignore).
 const NON_GIT_DEFAULT_IGNORES = ["node_modules/", ".venv/", "__pycache__/", ".DS_Store"];
 
-export type CheckpointKind = "turn" | "restore";
+// turn = before a run's first change, step = before a later step of the run, restore = before a restore.
+export type CheckpointKind = "turn" | "step" | "restore";
 
 export type Checkpoint = {
   sha: string;

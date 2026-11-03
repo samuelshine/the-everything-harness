@@ -17,7 +17,7 @@ export type AgentEvent =
   | { type: "tool_call"; id: string; name: string; args: unknown; summary?: string }
   | { type: "approval"; id: string; name: string; summary: string; behavior: "allow" | "deny"; reason: string }
   | { type: "tool_result"; id: string; name: string; content: string; isError: boolean }
-  | { type: "checkpoint"; sha: string }
+  | { type: "checkpoint"; sha: string; title: string }
   | { type: "warning"; message: string }
   | { type: "turn_end"; usage: Usage };
 
@@ -40,8 +40,9 @@ export type AgentOptions = {
   userInstructionsFile?: string;
   // Earlier conversation when resuming a session (ADR-0004); the prompt is appended to it.
   history?: Item[];
-  // Called once, before the first change of the run (ADR-0004). Returns the checkpoint id.
-  checkpoint?: () => Promise<string>;
+  // Called before the first change of each model turn that changes anything (ADR-0004),
+  // so every step can be rewound. `first` marks the run's first. Returns the checkpoint id.
+  checkpoint?: (step: { first: boolean; title: string }) => Promise<string>;
 };
 
 export type AgentResult = {
@@ -75,16 +76,22 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   };
   const byName = new Map(opts.tools.map((t) => [t.spec.name, t]));
   const log = opts.session;
-  let checkpointed = false;
-  const beforeChange = async () => {
-    if (checkpointed || !opts.checkpoint) return;
-    checkpointed = true;
+  // Per turn: the conversation before the turn, the checkpoint taken (if any) and what changed.
+  const step = { conversationAt: null as string | null, tried: false, sha: "", changes: [] as string[] };
+  let firstCheckpoint = true;
+  let checkpointsBroken = false;
+  const beforeChange = async (summary: string) => {
+    if (step.tried || !opts.checkpoint || checkpointsBroken) return;
+    step.tried = true;
     try {
-      const sha = await opts.checkpoint();
-      log?.append("checkpoint", { sha });
-      emit({ type: "checkpoint", sha });
+      const sha = await opts.checkpoint({ first: firstCheckpoint, title: summary });
+      firstCheckpoint = false;
+      step.sha = sha;
+      log?.append("checkpoint", { sha, kind: "step", title: summary, conversationAt: step.conversationAt });
+      emit({ type: "checkpoint", sha, title: summary });
     } catch (e) {
-      const message = `no checkpoint taken, so this run's file changes cannot be undone: ${(e as Error).message}`;
+      checkpointsBroken = true;
+      const message = `no checkpoint taken, so this run's file changes cannot be rewound: ${(e as Error).message}`;
       log?.append("error", { message });
       emit({ type: "warning", message });
     }
@@ -113,6 +120,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     const calls: { id: string; name: string; args: unknown }[] = [];
     let stop: StopReason = "end";
     let turnUsage = emptyUsage();
+    Object.assign(step, { conversationAt: log?.lastEventId ?? null, tried: false, sha: "", changes: [] });
 
     for await (const ev of opts.provider.stream(
       { model: opts.model, system, items, tools: opts.tools.map((t) => t.spec) },
@@ -148,11 +156,15 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     }
 
     for (const call of calls) {
-      const outcome = await runTool(call, byName, opts, ctx, emit, beforeChange);
+      const { changed, ...outcome } = await runTool(call, byName, opts, ctx, emit, beforeChange);
+      if (changed) step.changes.push(changed);
       const item: Item = { kind: "tool_result", callId: call.id, name: call.name, ...outcome };
       items.push(item);
       log?.append("tool_result", item);
     }
+    // The step's title names everything it changed, once that is known.
+    if (step.sha && step.changes.length > 1)
+      log?.append("checkpoint_title", { sha: step.sha, title: stepTitle(step.changes) });
   }
 
   log?.append("session_end", { stopReason: "max_turns", turns: maxTurns, usage });
@@ -165,8 +177,8 @@ async function runTool(
   opts: AgentOptions,
   ctx: ToolContext,
   emit: (e: AgentEvent) => void,
-  beforeChange: () => Promise<void>,
-): Promise<{ content: string; isError: boolean }> {
+  beforeChange: (summary: string) => Promise<void>,
+): Promise<{ content: string; isError: boolean; changed?: string }> {
   const log = opts.session;
   const fail = (content: string) => {
     emit({ type: "tool_result", id: call.id, name: call.name, content, isError: true });
@@ -211,7 +223,7 @@ async function runTool(
     );
   }
 
-  if (access.kind !== "read") await beforeChange();
+  if (access.kind !== "read") await beforeChange(access.summary);
   let out: ToolResult;
   try {
     out = await tool.run(args, ctx);
@@ -221,5 +233,12 @@ async function runTool(
   }
   const isError = out.isError ?? false;
   emit({ type: "tool_result", id: call.id, name: call.name, content: out.content, isError });
-  return { content: out.content, isError };
+  return { content: out.content, isError, ...(access.kind !== "read" ? { changed: access.summary } : {}) };
+}
+
+// "Edit a.ts, Create b.ts and 2 more"
+export function stepTitle(changes: string[]): string {
+  const unique = [...new Set(changes)];
+  if (unique.length <= 3) return unique.join(", ");
+  return `${unique.slice(0, 2).join(", ")} and ${unique.length - 2} more`;
 }

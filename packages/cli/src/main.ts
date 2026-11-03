@@ -13,6 +13,7 @@ const code = await run(process.argv.slice(2), {
           const answer = prompt(`${question} [y/N]`);
           return /^y(es)?$/i.test(answer?.trim() ?? "");
         },
+        ask: async (question: string) => prompt(question) ?? undefined,
       }
     : {}),
 });
