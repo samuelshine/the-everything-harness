@@ -25,7 +25,7 @@ CI runs the same checks on Ubuntu, macOS and Windows: `.github/workflows/spike-0
 | Check | Result |
 |---|---|
 | 1. Binary | 69.6 MiB; cold start **36.7 ms median**, 37.5 ms p90 (target < 300 ms) ✅ |
-| 2. Render (5,000 lines, 30,001 frames, 9-line live region) | Inline diff wrote **4.3 MiB** vs naive **8.3 MiB** (−49%). Manual flicker check: pending |
+| 2. Render (5,000 lines, 30,001 frames, 9-line live region) | Inline diff wrote **4.3 MiB** vs naive **8.3 MiB** (−49%). Manual flicker check: see below |
 | 3. Sandbox (`sandbox-exec`) | Write inside ✅ · write outside denied ✅ · network denied ✅ · reads ✅ |
 | 4. SDKs | MCP stdio client↔server ✅ · Anthropic SDK ✅ (no key: transport only) · OpenAI SDK ✅ (no key: transport only) |
 
@@ -38,8 +38,13 @@ CI runs the same checks on Ubuntu, macOS and Windows: `.github/workflows/spike-0
 
 Renderer numbers are identical on every OS (4.3 MiB inline vs 8.3 MiB naive), as expected, since they are computed rather than measured on a terminal. All cold starts are well under the 300 ms target. CI runners are noisier and slower than a local machine.
 
+### Manual flicker check (`render-demo`, 1,000 lines, 5 ms delay)
+| Terminal | Inline differential | Naive full redraw | Date |
+|---|---|---|---|
+| macOS Terminal.app | ✅ Stable, no visible flicker | ❌ Visibly glitchy | 2026-11-03 |
+
 ### Still to do by hand
-- `render-demo` in iTerm2, Terminal.app, tmux and Windows Terminal (and VS Code's terminal).
+- `render-demo` in iTerm2, VS Code's terminal, tmux and Windows Terminal (optional; Terminal.app passes).
 - Live provider calls with real API keys.
 
 ## Findings so far
@@ -47,4 +52,5 @@ Renderer numbers are identical on every OS (4.3 MiB inline vs 8.3 MiB naive), as
 - **macOS sandbox profiles need real paths.** `/var` → `/private/var` symlinks made the workspace write fail until the paths were resolved with `realpath`. The real sandbox layer must canonicalise every path before generating policy.
 - **Linux needs unprivileged user namespaces.** Ubuntu 24.04 restricts them via AppArmor, so the workflow relaxes `kernel.apparmor_restrict_unprivileged_userns`. Real users on such distros will hit this. The harness must detect it and explain the fix, or fall back to a container.
 - **Windows has no sandbox story yet.** That is expected (doc 10 §4) and needs its own ADR.
+- **The renderer difference is visible, not just measurable.** In Terminal.app the naive full redraw looks glitchy, and the inline differential renderer looks stable. This supports building our own renderer (ADR-0001 guard rail) rather than redrawing the whole live region.
 - The diffing renderer roughly halves terminal writes with a realistic live region (stream line + spinner + to-do panel + status). Its benefit grows with live-region size.
