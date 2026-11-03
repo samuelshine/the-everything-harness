@@ -23,6 +23,7 @@ import {
   tehHome,
   VERSION,
 } from "@everything-harness/core";
+import { rewind } from "./rewind";
 
 export type Io = {
   out: (s: string) => void;
@@ -33,13 +34,15 @@ export type Io = {
   stdin: () => Promise<string | undefined>;
   // Ask the person a yes/no question; undefined when there is no terminal to ask on.
   confirm?: (question: string) => Promise<boolean>;
+  // Ask for a line of text; undefined when there is no terminal.
+  ask?: (question: string) => Promise<string | undefined>;
 };
 
 export type Deps = { provider?: (name: string) => Provider };
 
 export const USAGE = `Usage: teh -p [options] [prompt]
        teh models
-       teh sessions | teh checkpoints | teh undo | teh restore <id>
+       teh rewind [point] | teh undo | teh sessions | teh checkpoints | teh restore <id>
 
 Run one prompt headlessly and print the result. The prompt can also be piped on stdin.
 The interactive terminal UI is not built yet.
@@ -56,12 +59,17 @@ Options:
   --disallowedTools <rules...>  Always deny, e.g. "Bash"
   --add-dir <dir...>            Extra directories the agent may change
   --max-turns <n>               Stop after n model turns (default 50)
-  -y, --yes                     Restore without asking (undo, restore)
+  -y, --yes                     Restore without asking (rewind, undo, restore)
   -v, --version                 Print the version
   -h, --help                    Show this help
 
 Commands:
   models                        List local Ollama models and whether they support tools
+  rewind [point]                Go back to any step of the latest session: lists titled points,
+                                then restores code, conversation or both
+      --code-only               Restore files only
+      --conversation-only       Restore the conversation only
+      --session <id>            Rewind another session (see \`teh sessions\`)
   sessions                      List this project's sessions, newest first
   checkpoints                   List file snapshots taken before each run changed anything
   undo                          Put files back as they were before the last run that changed them
@@ -89,6 +97,19 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   if (positionals[0] === "models") return listModels(io, makeProvider);
   if (positionals[0] === "checkpoints") return listCheckpoints(io);
   if (positionals[0] === "sessions") return printSessions(io);
+  if (positionals[0] === "rewind") {
+    if (v["code-only"] && v["conversation-only"]) return usageError(io, "choose --code-only or --conversation-only");
+    return rewind(io, {
+      ...(positionals[1] ? { point: positionals[1] } : {}),
+      ...(v["code-only"]
+        ? { scope: "code" as const }
+        : v["conversation-only"]
+          ? { scope: "conversation" as const }
+          : {}),
+      ...(v.session ? { session: v.session } : {}),
+      yes: v.yes ?? false,
+    });
+  }
   if (positionals[0] === "undo") return restore(io, undefined, v.yes ?? false);
   if (positionals[0] === "restore") {
     if (!positionals[1]) return usageError(io, "restore needs a checkpoint id; `teh checkpoints` lists them");
@@ -179,13 +200,16 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
         onEvent(e);
       },
       ...(resumed ? { history: resumed.items } : {}),
-      checkpoint: async () => (await store.snapshot("turn", session.id, prompt)).sha,
+      checkpoint: async ({ first, title }) =>
+        (await store.snapshot(first ? "turn" : "step", session.id, first ? prompt : title)).sha,
     });
 
     const isError = res.stopReason === "max_turns" || res.stopReason === "error";
     if (format === "text") {
       text.finish();
-      if (checkpoint.taken) io.err(`teh: \`teh undo\` reverts this run's file changes\n`);
+      if (checkpoint.taken) {
+        io.err("teh: `teh undo` reverts this run's file changes; `teh rewind` goes back to any step\n");
+      }
       if (res.stopReason === "max_turns") io.err(`teh: stopped after ${maxTurns} turns (--max-turns)\n`);
       if (denied.length) {
         io.err(
@@ -237,6 +261,9 @@ function parse(argv: string[]) {
       yes: { type: "boolean", short: "y" },
       continue: { type: "boolean", short: "c" },
       resume: { type: "string", short: "r" },
+      "code-only": { type: "boolean" },
+      "conversation-only": { type: "boolean" },
+      session: { type: "string" },
       version: { type: "boolean", short: "v" },
       help: { type: "boolean", short: "h" },
     },
@@ -323,7 +350,7 @@ async function listCheckpoints(io: Io): Promise<number> {
   }
   io.out(`Checkpoints for ${store.root} (newest first; restore with \`teh restore <id>\`):\n`);
   for (const c of all) {
-    const kind = c.kind === "restore" ? "before restore" : "before run";
+    const kind = c.kind === "restore" ? "before restore" : c.kind === "step" ? "before step" : "before run";
     io.out(`  ${shortSha(c.sha)}  ${when(c.time)}  ${kind.padEnd(14)}  ${c.label}\n`);
   }
   return 0;

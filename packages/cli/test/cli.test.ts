@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callTool, FakeProvider, type FakeTurn, type Provider, say, VERSION } from "@everything-harness/core";
@@ -14,6 +14,7 @@ type CallOpts = {
   cwd?: string;
   home?: string;
   confirm?: boolean;
+  answers?: string[];
 };
 
 async function call(argv: string[], opts: CallOpts = {}) {
@@ -32,6 +33,7 @@ async function call(argv: string[], opts: CallOpts = {}) {
       cwd,
       stdin: async () => opts.stdin,
       ...(opts.confirm === undefined ? {} : { confirm: async () => opts.confirm as boolean }),
+      ...(opts.answers ? { ask: async () => opts.answers?.shift() } : {}),
     },
     deps,
   );
@@ -240,6 +242,132 @@ describe("teh cli", () => {
       const r = await call(["-p", "-c", "hi"]);
       expect(r.code).toBe(2);
       expect(r.err).toContain("no earlier session");
+    });
+  });
+
+  describe("rewind", () => {
+    const edits = ["-p", "--model", "fake:fake", "--permission-mode", "acceptEdits"];
+    const file = (cwd: string, f: string) => (existsSync(join(cwd, f)) ? readFileSync(join(cwd, f), "utf8") : null);
+
+    // Prompt 1 creates a.txt then b.txt in two steps; prompt 2 rewrites a.txt.
+    async function history() {
+      const cwd = temp();
+      const home = temp();
+      await call([...edits, "make files"], {
+        cwd,
+        home,
+        turns: [
+          callTool("Write", { file_path: "a.txt", content: "v1" }),
+          callTool("Write", { file_path: "b.txt", content: "b" }),
+          say("made"),
+        ],
+      });
+      await call([...edits, "-c", "update a"], {
+        cwd,
+        home,
+        turns: [
+          callTool("Read", { file_path: "a.txt" }),
+          callTool("Write", { file_path: "a.txt", content: "v2" }),
+          say("updated"),
+        ],
+      });
+      return { cwd, home };
+    }
+
+    test("lists titled points grouped by prompt", async () => {
+      const { cwd, home } = await history();
+      const r = await call(["rewind"], { cwd, home });
+      expect(r.code).toBe(0);
+      for (const line of [
+        'Prompt 1: "make files"',
+        "1  ",
+        "Start of prompt 1",
+        "Before: Create a.txt (1 lines)",
+        "Before: Create b.txt (1 lines)",
+        'Prompt 2: "update a"',
+        "Start of prompt 2",
+        "Before: Overwrite a.txt (1 lines)",
+        "Current state",
+        "teh rewind <point>",
+      ])
+        expect(r.out).toContain(line);
+    });
+
+    test("rewinds code and conversation to a mid-run step, and can come back", async () => {
+      const { cwd, home } = await history();
+      const r = await call(["rewind", "3", "--yes"], { cwd, home });
+      expect(r.code).toBe(0);
+      expect(r.out).toContain("delete   b.txt");
+      expect(r.out).toContain("restore  a.txt");
+      expect(file(cwd, "a.txt")).toBe("v1");
+      expect(file(cwd, "b.txt")).toBeNull();
+
+      const list = (await call(["rewind"], { cwd, home })).out;
+      expect(list).toContain("Before: Create b.txt (1 lines)\n");
+      expect(list).toContain("Start of prompt 2  (rewound)");
+      expect(list).toContain("6  ");
+      expect(list).toContain("Before rewinding to point 3");
+
+      const next = await call(["-p", "-c", "what now?"], { cwd, home, turns: [say("ok")] });
+      const texts = next.fake.requests[0]?.items.map((i) => (i.kind === "text" ? i.text : i.kind));
+      expect(texts).toEqual(["make files", "tool_call", "tool_result", "what now?"]);
+
+      expect((await call(["rewind", "6", "--yes"], { cwd, home })).code).toBe(0);
+      expect(file(cwd, "a.txt")).toBe("v2");
+      expect(file(cwd, "b.txt")).toBe("b");
+      const back = await call(["-p", "-c", "and now?"], { cwd, home, turns: [say("ok")] });
+      expect(back.fake.requests[0]?.items.at(-2)).toEqual({ kind: "text", role: "assistant", text: "updated" });
+    });
+
+    test("--code-only and --conversation-only restore just one side", async () => {
+      const { cwd, home } = await history();
+      await call(["rewind", "4", "--code-only", "--yes"], { cwd, home });
+      expect(file(cwd, "a.txt")).toBe("v1");
+      const c1 = await call(["-p", "-c", "x"], { cwd, home, turns: [say("ok")] });
+      expect(c1.fake.requests[0]?.items.some((i) => i.kind === "text" && i.text === "updated")).toBe(true);
+
+      const { cwd: cwd2, home: home2 } = await history();
+      const r = await call(["rewind", "4", "--conversation-only", "--yes"], { cwd: cwd2, home: home2 });
+      expect(r.out).toContain("Your prompt 2 was:\n  update a");
+      expect(file(cwd2, "a.txt")).toBe("v2");
+      const c2 = await call(["-p", "-c", "x"], { cwd: cwd2, home: home2, turns: [say("ok")] });
+      expect(c2.fake.requests[0]?.items.map((i) => (i.kind === "text" ? i.text : i.kind)).at(-2)).toBe("made");
+    });
+
+    test("interactive: pick a point, take the default scope, confirm", async () => {
+      const { cwd, home } = await history();
+      const r = await call(["rewind"], { cwd, home, answers: ["1", ""], confirm: true });
+      expect(r.out).toContain("What should go back?");
+      expect(r.out).toContain("1  Code and conversation  (default)");
+      expect(file(cwd, "a.txt")).toBeNull();
+      expect(file(cwd, "b.txt")).toBeNull();
+      expect(r.out).toContain("Your prompt 1 was:\n  make files");
+    });
+
+    test("cancelling at any step changes nothing", async () => {
+      const { cwd, home } = await history();
+      expect((await call(["rewind"], { cwd, home, answers: [""] })).out).toContain("Nothing changed");
+      expect((await call(["rewind"], { cwd, home, answers: ["2", "n"] })).out).toContain("Nothing changed");
+      expect((await call(["rewind", "2"], { cwd, home, answers: ["1"], confirm: false })).out).toContain(
+        "Nothing changed",
+      );
+      expect(file(cwd, "a.txt")).toBe("v2");
+    });
+
+    test("bad input is explained", async () => {
+      const { cwd, home } = await history();
+      expect((await call(["rewind", "99", "--yes"], { cwd, home })).err).toContain("points run from 1 to 5");
+      expect((await call(["rewind", "2"], { cwd, home })).err).toContain("--yes");
+      expect((await call(["rewind", "--code-only", "--conversation-only"], { cwd, home })).code).toBe(2);
+      expect((await call(["rewind"])).err).toContain("no sessions");
+    });
+
+    test("a point already matching says so", async () => {
+      const { cwd, home } = await history();
+      await call(["rewind", "5", "--code-only", "--yes"], { cwd, home });
+      const again = await call(["rewind", "5", "--code-only", "--yes"], { cwd, home });
+      expect(again.out).toContain("Files: already as they were at this point.");
+      expect(again.out).toContain("Nothing to do");
     });
   });
 });

@@ -137,27 +137,45 @@ describe("runAgent", () => {
     expect(new Set(events.map((e) => e.owner))).toEqual(new Set(["local:test"]));
   });
 
-  test("takes one checkpoint before the first change, none for reads", async () => {
-    let calls = 0;
-    const checkpoint = async () => {
-      calls++;
-      return "abc123";
+  test("checkpoints before every step that changes files, titled by what it changed", async () => {
+    const steps: { first: boolean; title: string }[] = [];
+    const checkpoint = async (s: { first: boolean; title: string }) => {
+      steps.push(s);
+      return `sha${steps.length}`;
     };
     const { cwd, events, go, log } = setup(
       [
         callTool("Glob", { pattern: "*" }),
         callTool("Write", { file_path: "one.txt", content: "1" }),
-        callTool("Write", { file_path: "two.txt", content: "2" }),
+        [
+          { type: "tool_call", id: "w2", name: "Write", args: { file_path: "two.txt", content: "2" } },
+          { type: "tool_call", id: "w3", name: "Write", args: { file_path: "three.txt", content: "3" } },
+          { type: "stop", reason: "tool_use" },
+        ],
         say("done"),
       ],
       { permissions: { mode: "acceptEdits", allow: [], deny: [] }, checkpoint },
     );
     await go();
-    expect(calls).toBe(1);
-    expect(readFileSync(join(cwd, "two.txt"), "utf8")).toBe("2");
-    expect(events).toContainEqual({ type: "checkpoint", sha: "abc123" });
-    const types = log().map((e) => e.type);
-    expect(types.indexOf("checkpoint")).toBeLessThan(types.lastIndexOf("tool_result"));
+    expect(steps).toEqual([
+      { first: true, title: "Create one.txt (1 lines)" },
+      { first: false, title: "Create two.txt (1 lines)" },
+    ]);
+    expect(readFileSync(join(cwd, "three.txt"), "utf8")).toBe("3");
+    expect(events).toContainEqual({ type: "checkpoint", sha: "sha1", title: "Create one.txt (1 lines)" });
+    const events2 = log();
+    const cps = events2.filter((e) => e.type === "checkpoint").map((e) => e.data);
+    expect(cps).toMatchObject([
+      { sha: "sha1", kind: "step" },
+      { sha: "sha2", kind: "step" },
+    ]);
+    // A step's conversation point is the last event before that turn's reply.
+    const at = (cps[1] as { conversationAt: string }).conversationAt;
+    expect(events2.find((e) => e.id === at)?.data).toMatchObject({ kind: "tool_result", name: "Write" });
+    expect(events2.find((e) => e.type === "checkpoint_title")?.data).toEqual({
+      sha: "sha2",
+      title: "Create two.txt (1 lines), Create three.txt (1 lines)",
+    });
   });
 
   test("a failed checkpoint warns but does not stop the run", async () => {
