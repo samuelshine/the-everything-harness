@@ -60,6 +60,11 @@ Before a run changes anything, `teh` snapshots the project into a separate shado
 - `teh checkpoints` lists snapshots, and `teh restore <id>` returns to any of them. Every restore prints an id that undoes it.
 - Ignored files (`.gitignore`, `.teh/checkpoint-ignore`) and files over 10 MB are not snapshotted and are never overwritten by a restore.
 
+**Skills and commands** (ADR-0015). `teh` reads skills in the Agent Skills format and Claude Code's commands, so the ones you already have work as they are. It looks in `~/.teh/`, `~/.claude/`, and the project's `.teh/`, `.agents/` and `.claude/` folders; your own copy wins over a project's.
+- `teh skills` lists them.
+- `teh -p "/human tidy README.md"` runs one by name.
+- The model also sees each skill's name and description, and loads a skill with the `Skill` tool when a request fits, for example "make this sound less like AI wrote it".
+
 Other flags: `--output-format text|json|stream-json`, `--max-turns`, `--add-dir`. The model can also come from `TEH_MODEL`. Ollama is found through `OLLAMA_HOST`, and `TEH_OLLAMA_NUM_CTX` sets the context window (default 65536, capped at the model's maximum). Sessions are saved as JSONL under `~/.teh/projects/` (ADR-0004). `teh` reads `AGENTS.md` and `CLAUDE.md` like Claude Code does.
 
 ## Contributing

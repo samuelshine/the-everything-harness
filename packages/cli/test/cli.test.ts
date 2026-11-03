@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callTool, FakeProvider, type FakeTurn, type Provider, say, VERSION } from "@everything-harness/core";
@@ -29,7 +29,7 @@ async function call(argv: string[], opts: CallOpts = {}) {
     {
       out: (s) => (out += s),
       err: (s) => (err += s),
-      env: { TEH_HOME: home, ...opts.env },
+      env: { TEH_HOME: home, HOME: home, ...opts.env },
       cwd,
       stdin: async () => opts.stdin,
       ...(opts.confirm === undefined ? {} : { confirm: async () => opts.confirm as boolean }),
@@ -368,6 +368,63 @@ describe("teh cli", () => {
       const again = await call(["rewind", "5", "--code-only", "--yes"], { cwd, home });
       expect(again.out).toContain("Files: already as they were at this point.");
       expect(again.out).toContain("Nothing to do");
+    });
+  });
+
+  describe("skills", () => {
+    function withSkills() {
+      const cwd = temp();
+      const home = temp();
+      mkdirSync(join(home, ".claude/skills/human"), { recursive: true });
+      writeFileSync(
+        join(home, ".claude/skills/human/SKILL.md"),
+        "---\nname: human\ndescription: Rewrite prose so it reads as human.\n---\nCut the filler.\n",
+      );
+      mkdirSync(join(cwd, ".claude/commands"), { recursive: true });
+      writeFileSync(
+        join(cwd, ".claude/commands/fix.md"),
+        "---\nargument-hint: <issue>\n---\nFix issue $ARGUMENTS and add a test.\n",
+      );
+      return { cwd, home };
+    }
+
+    test("teh skills lists them with how to run each", async () => {
+      const r = await call(["skills"], withSkills());
+      expect(r.out).toContain("/human");
+      expect(r.out).toContain("user skill");
+      expect(r.out).toContain("/fix <issue>");
+      expect(r.out).toContain("project command");
+    });
+
+    test("/name runs a skill or command", async () => {
+      const dirs = withSkills();
+      const r = await call(["-p", "--model", "fake:fake", "/fix 123"], { ...dirs, turns: [say("fixed")] });
+      expect(r.fake.requests[0]?.items[0]).toEqual({
+        kind: "text",
+        role: "user",
+        text: "Fix issue 123 and add a test.",
+      });
+      const h = await call(["-p", "--model", "fake:fake", "/human tidy README.md"], { ...dirs, turns: [say("ok")] });
+      const first = h.fake.requests[0]?.items[0];
+      const text = first?.kind === "text" ? first.text : "";
+      expect(text).toContain("Cut the filler.");
+      expect(text).toContain("ARGUMENTS: tidy README.md");
+      expect(h.fake.requests[0]?.system).toContain("- human: Rewrite prose so it reads as human.");
+    });
+
+    test("an unknown /name suggests close matches and is not sent", async () => {
+      const r = await call(["-p", "--model", "fake:fake", "/humna x"], withSkills());
+      expect(r.code).toBe(2);
+      expect(r.err).toContain("did you mean /human");
+      expect(r.fake.requests).toHaveLength(0);
+    });
+
+    test("a prompt that starts with a path is sent as it is", async () => {
+      const r = await call(["-p", "--model", "fake:fake", "/tmp/a.txt looks wrong"], {
+        ...withSkills(),
+        turns: [say("ok")],
+      });
+      expect(r.fake.requests[0]?.items[0]).toMatchObject({ text: "/tmp/a.txt looks wrong" });
     });
   });
 });

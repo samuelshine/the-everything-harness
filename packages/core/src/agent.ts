@@ -7,6 +7,8 @@ import { decide, type PermissionConfig } from "./permissions";
 import { systemPrompt } from "./prompt";
 import type { Provider } from "./providers/provider";
 import type { SessionLog } from "./session";
+import { type Skill, skillListing } from "./skills";
+import { skillTool } from "./tools/skill";
 import type { Access, Tool, ToolContext, ToolResult } from "./tools/tool";
 import { ToolInputError } from "./tools/tool";
 import { addUsage, emptyUsage, type Item, ProviderError, type StopReason, type Usage } from "./types";
@@ -38,6 +40,11 @@ export type AgentOptions = {
   signal?: AbortSignal;
   onEvent?: (e: AgentEvent) => void;
   userInstructionsFile?: string;
+  // Set when the prompt came from "/name args"; logged with the expanded prompt.
+  slash?: { name: string; args: string };
+  // Skills the model may load with the Skill tool (ADR-0015), and the listing budget.
+  skills?: Skill[];
+  skillListingChars?: number;
   // Earlier conversation when resuming a session (ADR-0004); the prompt is appended to it.
   history?: Item[];
   // Called before the first change of each model turn that changes anything (ADR-0004),
@@ -60,6 +67,10 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     opts.cwd,
     opts.userInstructionsFile ? { userFile: opts.userInstructionsFile } : {},
   );
+  const usableSkills = (opts.skills ?? []).filter((s) => s.modelInvocable);
+  const listing = skillListing(usableSkills, opts.skillListingChars ?? 4000);
+  const loadedSkills = new Set(opts.slash ? [opts.slash.name] : []);
+  const tools = usableSkills.length ? [...opts.tools, skillTool(usableSkills, loadedSkills)] : opts.tools;
   const system = systemPrompt({
     cwd: opts.cwd,
     projectRoot,
@@ -67,14 +78,16 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     date: new Date().toISOString().slice(0, 10),
     isGitRepo: existsSync(join(projectRoot, ".git")),
     instructions: renderInstructions(instructions, opts.cwd),
+    ...(listing.text ? { skills: listing.text, skillsOmitted: listing.omitted } : {}),
   });
   const ctx: ToolContext = {
     cwd: opts.cwd,
     workspaceRoots: [projectRoot, opts.cwd, ...(opts.addDirs ?? [])],
     readState: new Map(),
+    readRoots: usableSkills.map((s) => s.dir),
     ...(opts.signal ? { signal: opts.signal } : {}),
   };
-  const byName = new Map(opts.tools.map((t) => [t.spec.name, t]));
+  const byName = new Map(tools.map((t) => [t.spec.name, t]));
   const log = opts.session;
   // Per turn: the conversation before the turn, the checkpoint taken (if any) and what changed.
   const step = { conversationAt: null as string | null, tried: false, sha: "", changes: [] as string[] };
@@ -108,7 +121,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   });
 
   const items: Item[] = [...(opts.history ?? []), { kind: "text", role: "user", text: opts.prompt }];
-  log?.append("user_message", { text: opts.prompt });
+  log?.append("user_message", { text: opts.prompt, ...(opts.slash ? { slash: opts.slash } : {}) });
 
   let usage = emptyUsage();
   let result = "";
@@ -123,7 +136,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     Object.assign(step, { conversationAt: log?.lastEventId ?? null, tried: false, sha: "", changes: [] });
 
     for await (const ev of opts.provider.stream(
-      { model: opts.model, system, items, tools: opts.tools.map((t) => t.spec) },
+      { model: opts.model, system, items, tools: tools.map((t) => t.spec) },
       opts.signal,
     )) {
       if (ev.type === "text_delta") {

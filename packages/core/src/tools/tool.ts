@@ -8,6 +8,8 @@ export type ToolContext = {
   workspaceRoots: string[];
   // Files read this session and their mtime when read; Edit/Write require a fresh read.
   readState: Map<string, number>;
+  // Directories the agent may read without approval but not change (e.g. skill folders).
+  readRoots?: string[];
   signal?: AbortSignal;
 };
 
@@ -88,9 +90,9 @@ function canonical(p: string): string {
   }
 }
 
-export function insideWorkspace(p: string, ctx: ToolContext): boolean {
+export function insideWorkspace(p: string, ctx: ToolContext, roots = ctx.workspaceRoots): boolean {
   const target = canonical(p);
-  return ctx.workspaceRoots.some((root) => {
+  return roots.some((root) => {
     const rel = relative(canonical(root), target);
     return rel === "" || (!rel.startsWith("..") && !isAbsolute(rel));
   });

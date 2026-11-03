@@ -7,6 +7,9 @@ export type PromptEnv = {
   date: string;
   isGitRepo: boolean;
   instructions: string;
+  // Name and description of each skill the model may load (ADR-0015).
+  skills?: string;
+  skillsOmitted?: number;
 };
 
 export function systemPrompt(env: PromptEnv): string {
@@ -29,6 +32,12 @@ platform: ${env.platform}
 date: ${env.date}
 </environment>`,
   ];
+  if (env.skills) {
+    parts.push(`<skills>
+Skills are instructions for specific kinds of task. When the user's request matches a skill's description, call the Skill tool with that skill's name before starting, then follow what it returns. If a skill's instructions are already in the conversation, follow them without loading it again.
+${env.skills}${env.skillsOmitted ? `\n(${env.skillsOmitted} more skills are not listed; the Skill tool can still load them by name.)` : ""}
+</skills>`);
+  }
   if (env.instructions) {
     parts.push(
       `The project provides these instructions. Follow them unless the user says otherwise.\n\n${env.instructions}`,

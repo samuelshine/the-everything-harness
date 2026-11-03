@@ -203,6 +203,61 @@ describe("runAgent", () => {
     expect(calls).toBe(0);
   });
 
+  test("lists skills, loads one with the Skill tool, and reads its files without asking", async () => {
+    const skillDir = tempDir("skill-");
+    writeFileSync(join(skillDir, "SKILL.md"), "x");
+    writeFileSync(join(skillDir, "checklist.md"), "1. be specific");
+    const skill = {
+      name: "human",
+      description: "Rewrite prose.",
+      kind: "skill" as const,
+      source: "user" as const,
+      path: join(skillDir, "SKILL.md"),
+      dir: skillDir,
+      body: "Follow checklist.md.",
+      modelInvocable: true,
+      userInvocable: true,
+    };
+    const { provider, go } = setup(
+      [
+        callTool("Skill", { name: "human" }),
+        callTool("Read", { file_path: join(skillDir, "checklist.md") }),
+        say("rewritten"),
+      ],
+      { skills: [skill] },
+    );
+    await go();
+    expect(provider.requests[0]?.system).toContain("- human: Rewrite prose.");
+    expect(provider.requests[0]?.tools.map((t) => t.name)).toContain("Skill");
+    expect(provider.requests[1]?.items.at(-1)).toMatchObject({
+      content: expect.stringContaining("Follow checklist.md."),
+    });
+    expect(provider.requests[2]?.items.at(-1)).toMatchObject({
+      isError: false,
+      content: expect.stringContaining("be specific"),
+    });
+  });
+
+  test("a skill run with /name is not loaded a second time", async () => {
+    const skill = {
+      name: "human",
+      description: "Rewrite prose.",
+      kind: "skill" as const,
+      source: "user" as const,
+      path: "/x/SKILL.md",
+      dir: "/x",
+      body: "Cut the filler.",
+      modelInvocable: true,
+      userInvocable: true,
+    };
+    const { provider, go } = setup([callTool("Skill", { name: "human" }), say("ok")], {
+      skills: [skill],
+      slash: { name: "human", args: "" },
+    });
+    await go();
+    expect(provider.requests[1]?.items.at(-1)).toMatchObject({ content: expect.stringContaining("already loaded") });
+  });
+
   test("project instructions reach the system prompt", async () => {
     const { cwd, provider, go } = setup([say("ok")]);
     writeFileSync(join(cwd, "AGENTS.md"), "Always answer in haiku.");
