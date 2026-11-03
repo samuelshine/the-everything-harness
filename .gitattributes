@@ -1,2 +1,4 @@
-# Auto detect text files and perform LF normalization
-* text=auto
+# Keep LF everywhere (Biome and .editorconfig expect it; Windows runners default to CRLF).
+* text=auto eol=lf
+*.png binary
+*.jpg binary
