@@ -17,6 +17,8 @@ export type AgentEvent =
   | { type: "tool_call"; id: string; name: string; args: unknown; summary?: string }
   | { type: "approval"; id: string; name: string; summary: string; behavior: "allow" | "deny"; reason: string }
   | { type: "tool_result"; id: string; name: string; content: string; isError: boolean }
+  | { type: "checkpoint"; sha: string }
+  | { type: "warning"; message: string }
   | { type: "turn_end"; usage: Usage };
 
 // Asked when the permission engine says "ask". Headless runs answer "deny".
@@ -36,6 +38,8 @@ export type AgentOptions = {
   signal?: AbortSignal;
   onEvent?: (e: AgentEvent) => void;
   userInstructionsFile?: string;
+  // Called once, before the first change of the run (ADR-0004). Returns the checkpoint id.
+  checkpoint?: () => Promise<string>;
 };
 
 export type AgentResult = {
@@ -69,6 +73,20 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   };
   const byName = new Map(opts.tools.map((t) => [t.spec.name, t]));
   const log = opts.session;
+  let checkpointed = false;
+  const beforeChange = async () => {
+    if (checkpointed || !opts.checkpoint) return;
+    checkpointed = true;
+    try {
+      const sha = await opts.checkpoint();
+      log?.append("checkpoint", { sha });
+      emit({ type: "checkpoint", sha });
+    } catch (e) {
+      const message = `no checkpoint taken, so this run's file changes cannot be undone: ${(e as Error).message}`;
+      log?.append("error", { message });
+      emit({ type: "warning", message });
+    }
+  };
 
   log?.append("session_start", {
     cwd: opts.cwd,
@@ -127,7 +145,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     }
 
     for (const call of calls) {
-      const outcome = await runTool(call, byName, opts, ctx, emit);
+      const outcome = await runTool(call, byName, opts, ctx, emit, beforeChange);
       const item: Item = { kind: "tool_result", callId: call.id, name: call.name, ...outcome };
       items.push(item);
       log?.append("tool_result", item);
@@ -144,6 +162,7 @@ async function runTool(
   opts: AgentOptions,
   ctx: ToolContext,
   emit: (e: AgentEvent) => void,
+  beforeChange: () => Promise<void>,
 ): Promise<{ content: string; isError: boolean }> {
   const log = opts.session;
   const fail = (content: string) => {
@@ -189,6 +208,7 @@ async function runTool(
     );
   }
 
+  if (access.kind !== "read") await beforeChange();
   let out: ToolResult;
   try {
     out = await tool.run(args, ctx);

@@ -3,6 +3,9 @@ import { parseArgs } from "node:util";
 import {
   type AgentEvent,
   builtinTools,
+  type Checkpoint,
+  CheckpointError,
+  CheckpointStore,
   createProvider,
   findProjectRoot,
   PERMISSION_MODES,
@@ -11,6 +14,7 @@ import {
   ProviderError,
   parseModelRef,
   parseRules,
+  type RestorePlan,
   runAgent,
   SessionLog,
   tehHome,
@@ -24,12 +28,15 @@ export type Io = {
   cwd: string;
   // Piped stdin, or undefined when stdin is a terminal.
   stdin: () => Promise<string | undefined>;
+  // Ask the person a yes/no question; undefined when there is no terminal to ask on.
+  confirm?: (question: string) => Promise<boolean>;
 };
 
 export type Deps = { provider?: (name: string) => Provider };
 
 export const USAGE = `Usage: teh -p [options] [prompt]
        teh models
+       teh checkpoints | teh undo | teh restore <id>
 
 Run one prompt headlessly and print the result. The prompt can also be piped on stdin.
 The interactive terminal UI is not built yet.
@@ -43,11 +50,15 @@ Options:
   --disallowedTools <rules...>  Always deny, e.g. "Bash"
   --add-dir <dir...>            Extra directories the agent may change
   --max-turns <n>               Stop after n model turns (default 50)
+  -y, --yes                     Restore without asking (undo, restore)
   -v, --version                 Print the version
   -h, --help                    Show this help
 
 Commands:
   models                        List local Ollama models and whether they support tools
+  checkpoints                   List file snapshots taken before each run changed anything
+  undo                          Put files back as they were before the last run that changed them
+  restore <id>                  Put files back to a checkpoint (undo a restore with the id it prints)
 `;
 
 const OUTPUT_FORMATS = ["text", "json", "stream-json"] as const;
@@ -69,6 +80,12 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     return 0;
   }
   if (positionals[0] === "models") return listModels(io, makeProvider);
+  if (positionals[0] === "checkpoints") return listCheckpoints(io);
+  if (positionals[0] === "undo") return restore(io, undefined, v.yes ?? false);
+  if (positionals[0] === "restore") {
+    if (!positionals[1]) return usageError(io, "restore needs a checkpoint id; `teh checkpoints` lists them");
+    return restore(io, positionals[1], v.yes ?? false);
+  }
   if (v.help || (!v.print && positionals.length === 0)) {
     io.out(USAGE);
     return 0;
@@ -112,9 +129,12 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     }
     for (const note of probe.notes) io.err(`teh: warning: ${note}\n`);
 
-    const session = new SessionLog(tehHome(io.env), findProjectRoot(io.cwd));
+    const root = findProjectRoot(io.cwd);
+    const session = new SessionLog(tehHome(io.env), root);
+    const store = new CheckpointStore(tehHome(io.env), root);
     const denied: string[] = [];
     const text = textOutput(io, denied);
+    const checkpoint = { taken: false };
     const onEvent = format === "stream-json" ? streamJson(io) : format === "text" ? text.onEvent : trackDenied(denied);
     if (format === "stream-json") {
       io.out(
@@ -134,12 +154,17 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       addDirs: v["add-dir"] ?? [],
       session,
       maxTurns,
-      onEvent,
+      onEvent: (e) => {
+        if (e.type === "checkpoint") checkpoint.taken = true;
+        onEvent(e);
+      },
+      checkpoint: async () => (await store.snapshot("turn", session.id, prompt)).sha,
     });
 
     const isError = res.stopReason === "max_turns" || res.stopReason === "error";
     if (format === "text") {
       text.finish();
+      if (checkpoint.taken) io.err(`teh: \`teh undo\` reverts this run's file changes\n`);
       if (res.stopReason === "max_turns") io.err(`teh: stopped after ${maxTurns} turns (--max-turns)\n`);
       if (denied.length) {
         io.err(
@@ -188,6 +213,7 @@ function parse(argv: string[]) {
       disallowedTools: { type: "string", multiple: true },
       "add-dir": { type: "string", multiple: true },
       "max-turns": { type: "string" },
+      yes: { type: "boolean", short: "y" },
       version: { type: "boolean", short: "v" },
       help: { type: "boolean", short: "h" },
     },
@@ -239,6 +265,8 @@ function textOutput(io: Io, denied: string[]) {
     } else if (e.type === "approval" && e.behavior === "deny") {
       denied.push(e.summary);
       io.err(`✗ denied: ${e.summary} (${e.reason})\n`);
+    } else if (e.type === "warning") {
+      io.err(`teh: warning: ${e.message}\n`);
     } else if (e.type === "tool_result" && e.isError && !e.content.startsWith("Permission denied")) {
       const line = e.content.split("\n").find((l) => l.trim() && l !== "[stderr]") ?? e.content;
       io.err(`  ! ${line}\n`);
@@ -255,4 +283,77 @@ function trackDenied(denied: string[]) {
   return (e: AgentEvent) => {
     if (e.type === "approval" && e.behavior === "deny") denied.push(e.summary);
   };
+}
+
+const shortSha = (sha: string) => sha.slice(0, 8);
+const pad = (n: number) => String(n).padStart(2, "0");
+// Local time, which is what people compare against when picking a checkpoint.
+const when = (d: Date) =>
+  `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`;
+
+async function listCheckpoints(io: Io): Promise<number> {
+  const store = new CheckpointStore(tehHome(io.env), findProjectRoot(io.cwd));
+  const all = await store.list();
+  if (all.length === 0) {
+    io.out("No checkpoints yet. One is taken before each run's first change.\n");
+    return 0;
+  }
+  io.out(`Checkpoints for ${store.root} (newest first; restore with \`teh restore <id>\`):\n`);
+  for (const c of all) {
+    const kind = c.kind === "restore" ? "before restore" : "before run";
+    io.out(`  ${shortSha(c.sha)}  ${when(c.time)}  ${kind.padEnd(14)}  ${c.label}\n`);
+  }
+  return 0;
+}
+
+// `ref` undefined means undo: go back to the newest run checkpoint that differs from now.
+async function restore(io: Io, ref: string | undefined, yes: boolean): Promise<number> {
+  const store = new CheckpointStore(tehHome(io.env), findProjectRoot(io.cwd));
+  try {
+    const why = store.unavailable();
+    if (why) return usageError(io, why);
+    let target: Checkpoint | undefined;
+    if (ref) {
+      target = await store.find(ref);
+      if (!target) return usageError(io, `no checkpoint ${ref}; \`teh checkpoints\` lists them`);
+    }
+    const candidates = target ? [target] : (await store.list()).filter((c) => c.kind === "turn");
+    if (candidates.length === 0) {
+      io.out("Nothing to undo: no run has changed files here yet.\n");
+      return 0;
+    }
+    const current = await store.snapshot("restore", "", `before restoring ${ref ?? "(undo)"}`);
+    let plan: RestorePlan | undefined;
+    for (const c of candidates) {
+      const p = await store.plan(current, c);
+      if (p.write.length || p.remove.length) {
+        plan = p;
+        break;
+      }
+    }
+    if (!plan) {
+      io.out(ref ? "Files already match that checkpoint.\n" : "Nothing to undo: files match every checkpoint.\n");
+      return 0;
+    }
+    io.out(`Restore files to ${shortSha(plan.target.sha)} (${when(plan.target.time)}, ${plan.target.label}):\n`);
+    for (const f of plan.write) io.out(`  restore  ${f}\n`);
+    for (const f of plan.remove) io.out(`  delete   ${f}\n`);
+    for (const f of plan.skipped) io.out(`  keep     ${f}  (not covered by snapshots)\n`);
+    if (!yes) {
+      if (!io.confirm) return usageError(io, "no terminal to confirm on; re-run with --yes");
+      if (!(await io.confirm("Restore these files?"))) {
+        io.out("Nothing changed.\n");
+        return 1;
+      }
+    }
+    await store.apply(plan);
+    io.out(`Restored. To undo this restore: teh restore ${shortSha(current.sha)}\n`);
+    return 0;
+  } catch (e) {
+    if (e instanceof CheckpointError) {
+      io.err(`teh: ${e.message}\n`);
+      return 1;
+    }
+    throw e;
+  }
 }

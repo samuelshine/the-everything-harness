@@ -137,6 +137,54 @@ describe("runAgent", () => {
     expect(new Set(events.map((e) => e.owner))).toEqual(new Set(["local:test"]));
   });
 
+  test("takes one checkpoint before the first change, none for reads", async () => {
+    let calls = 0;
+    const checkpoint = async () => {
+      calls++;
+      return "abc123";
+    };
+    const { cwd, events, go, log } = setup(
+      [
+        callTool("Glob", { pattern: "*" }),
+        callTool("Write", { file_path: "one.txt", content: "1" }),
+        callTool("Write", { file_path: "two.txt", content: "2" }),
+        say("done"),
+      ],
+      { permissions: { mode: "acceptEdits", allow: [], deny: [] }, checkpoint },
+    );
+    await go();
+    expect(calls).toBe(1);
+    expect(readFileSync(join(cwd, "two.txt"), "utf8")).toBe("2");
+    expect(events).toContainEqual({ type: "checkpoint", sha: "abc123" });
+    const types = log().map((e) => e.type);
+    expect(types.indexOf("checkpoint")).toBeLessThan(types.lastIndexOf("tool_result"));
+  });
+
+  test("a failed checkpoint warns but does not stop the run", async () => {
+    const { events, go } = setup([callTool("Write", { file_path: "a.txt", content: "x" }), say("done")], {
+      permissions: { mode: "acceptEdits", allow: [], deny: [] },
+      checkpoint: async () => {
+        throw new Error("git exploded");
+      },
+    });
+    expect((await go()).result).toBe("done");
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "warning", message: expect.stringContaining("git exploded") }),
+    );
+  });
+
+  test("no checkpoint when every change is denied", async () => {
+    let calls = 0;
+    const { go } = setup([callTool("Write", { file_path: "a.txt", content: "x" }), say("blocked")], {
+      checkpoint: async () => {
+        calls++;
+        return "x";
+      },
+    });
+    await go();
+    expect(calls).toBe(0);
+  });
+
   test("project instructions reach the system prompt", async () => {
     const { cwd, provider, go } = setup([say("ok")]);
     writeFileSync(join(cwd, "AGENTS.md"), "Always answer in haiku.");
