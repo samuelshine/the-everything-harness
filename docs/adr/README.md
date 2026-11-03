@@ -12,7 +12,7 @@ These decisions are open, with the research's current lean. Sources are in [synt
 | ADR | Decision | Research lean |
 |---|---|---|
 | [0001](0001-language-runtime-and-distribution.md) (Accepted) | Language/runtime and distribution | TypeScript on Bun, compiled to a single binary; engine/TUI split with a language-neutral event protocol |
-| 0002 | Provider layer: own adapters vs LiteLLM | Native adapters for the top 2–3 providers, plus a gateway adapter for the long tail |
+| 0002 | Provider layer: own adapters vs LiteLLM | Native Anthropic + OpenAI adapters, **plus a generic OpenAI-compatible adapter and a native Ollama adapter in the first release** (local models); capability registry seeded from models.dev; cost model per auth route (doc 12) |
 | 0003 | Permission and sandbox model | Sandbox mode x approval mode, plus deny→ask→allow rules over a parsed shell AST |
 | 0004 | Session storage and checkpoints | Append-only JSONL sessions, plus a shadow-git snapshot per turn |
 | 0005 | TUI rendering | Inline differential renderer by default; alternate screen opt-in |
@@ -24,3 +24,4 @@ These decisions are open, with the research's current lean. Sources are in [synt
 | [0011](0011-telemetry.md) (Accepted) | Telemetry | Anonymous usage stats on by default; strict field allow-list; first-run notice; easy opt-out incl. `DO_NOT_TRACK` |
 | 0012 | Telemetry backend | To decide before the first public release |
 | 0013 | Windows sandbox | Not yet researched |
+| 0014 | Model policy (routing) | Roles + task triage + escalate on failure, at task boundaries only; off by default until evals beat one mid-tier model; learned policy later (doc 12) |

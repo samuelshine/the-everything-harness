@@ -22,6 +22,7 @@ The harness is **terminal-first**: it should be usable the way Claude Code is. S
 | 09 | Other: security, evals, observability, UX, ops, harness basics | [09-other-topics.md](09-other-topics.md) |
 | 10 | Terminal harness: Claude-Code-class CLI/TUI requirements | [10-terminal-harness.md](10-terminal-harness.md) |
 | 11 | Competitive landscape: wins, flaws, incidents, positioning | [11-competitive-landscape.md](11-competitive-landscape.md) |
+| 12 | Model routing (task → model) and local models (Ollama, LM Studio, llama.cpp); instruction files across providers | [12-model-routing-and-local-models.md](12-model-routing-and-local-models.md) |
 
 ## Method
 - **Scope**: primary sources first: engineering blogs, docs and specs from Anthropic, OpenAI, Google/DeepMind, Microsoft, plus the Linux Foundation, OWASP and OpenTelemetry. Then peer-reviewed or arXiv papers, then practitioner write-ups (Manus, Cognition, LangChain, Chroma, Simon Willison, Martin Fowler).
@@ -37,4 +38,4 @@ The harness is **terminal-first**: it should be usable the way Claude Code is. S
 - **Date of research:** 2026-11-02. Protocol specs (MCP, Agent Skills, OTel GenAI) are changing quickly, so re-check them quarterly.
 
 ## Source ID prefixes
-`BAS` harness basics · `CTX` context/memory · `LLM` providers · `PERF` performance · `PRM` prompts · `SKL` skills · `MCP` plugins/protocols · `FBK` feedback/guidance · `AGT` agents/delegation · `OTH` security/evals/observability/UX · `TRM` terminal harness (CLI/TUI) · `CMP` competitive landscape.
+`BAS` harness basics · `CTX` context/memory · `LLM` providers · `PERF` performance · `PRM` prompts · `SKL` skills · `MCP` plugins/protocols · `FBK` feedback/guidance · `AGT` agents/delegation · `OTH` security/evals/observability/UX · `TRM` terminal harness (CLI/TUI) · `CMP` competitive landscape · `RTE` routing and local models.

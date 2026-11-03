@@ -70,7 +70,7 @@ Grouped by the three layers in [BAS-03]: context, harness, loop. The capability 
 | Phase | Deliverable | Why first | Key sources |
 |-------|-------------|-----------|-------------|
 | 0 | **Eval harness + tracing skeleton** (task set, outcome graders, pass^k, OTel spans) | Every later decision needs measurement | FBK-13, OTH-07, OTH-11 |
-| 1 | **Provider layer** with an item-based message model; Anthropic + OpenAI native adapters; capability flags | Everything sits on it, and it's hard to retrofit | LLM-01, LLM-02, LLM-04 |
+| 1 | **Provider layer** with an item-based message model; Anthropic + OpenAI native adapters, generic OpenAI-compatible + native Ollama adapters (local models); capability registry (models.dev) and per-auth-route cost model; role-based model policy (doc 12) | Everything sits on it, and it's hard to retrofit | LLM-01, LLM-02, LLM-04 |
 | 2 | **Core loop + built-in tools** (read/edit/search/bash) designed to ACI quality; parallel tool execution; JSONL sessions + headless `-p` | Tool ergonomics drive success; headless is the first client | AGT-07, OTH-08, MCP-05, PERF-09, TRM-06 |
 | 2b | **TUI v1**: inline differential renderer, input editor, slash commands, diffs, interrupt/queue, checkpoints, plan mode | Makes it usable like Claude Code | TRM-08, TRM-31, TRM-05 |
 | 3 | **Context engine**: cache-stable layout, compaction, tool-result clearing, AGENTS.md/CLAUDE.md loading, file memory | Biggest cost and quality lever | CTX-01, CTX-02, CTX-04, PERF-01 |
@@ -78,7 +78,7 @@ Grouped by the three layers in [BAS-03]: context, harness, loop. The capability 
 | 5 | **Hooks** (lifecycle events) + **MCP client** + **skills loader** | Open extension surface | FBK-10, MCP-01, SKL-02 |
 | 6 | **Subagents** (fork/isolated, tool allowlists, model per agent) + evaluator role | Delegation and verification | AGT-08, CTX-19, FBK-08 |
 | 7 | **Plugins & marketplaces**, tool search, code-execution mode | Scale the ecosystem | MCP-11, MCP-04, MCP-03 |
-| 8 | **Prompt optimiser** (GEPA over traces), router, long-term memory backend | Needs data from earlier phases | PRM-03, LLM-08, CTX-10 |
+| 8 | **Prompt optimiser** (GEPA over traces), learned routing policy (doc 12, gated on evals), long-term memory backend | Needs data from earlier phases | PRM-03, LLM-08, CTX-10 |
 
 ## 5. Decisions to make
 
@@ -92,6 +92,7 @@ These are open decisions for you. The research gives a lean, not a final answer.
 
 6. **Default approval posture.** Prompt-by-default, or sandboxed auto mode with a reviewer agent [TRM-19, TRM-04]? *Lean was:* sandboxed `workspace-write` + prompts only for escapes, as Codex does. *Decided:* ask before every change, with the sandbox still on underneath ([ADR-0008](../adr/0008-default-approval-posture.md)).
 7. **Subscription access.** Can users spend a Claude or ChatGPT subscription? *Accepted:* ChatGPT plan through Sign in with ChatGPT (needs an open-source repo); Claude only by delegating to the user's own Claude Code; never reuse first-party logins [LLM-11, LLM-15]. See [ADR-0009](../adr/0009-provider-auth-and-subscriptions.md).
+8. **Model routing.** *Requirement (2026-11-03):* pick the model per task to cut cost, and support any local model. *Lean:* role-based model policy + task triage + escalate-on-failure at task boundaries only; routing ships as default only after evals show it beats one mid-tier model; local models via OpenAI-compatible and native Ollama adapters [RTE-01, RTE-03, RTE-04, RTE-08]. See [12](12-model-routing-and-local-models.md) and ADR-0014.
 
 ## 6. What's moving fast (re-check quarterly)
 

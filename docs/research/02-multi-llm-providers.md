@@ -38,6 +38,8 @@ Key rules:
 - **Learned routers** (RouteLLM): a classifier trained on preference data picks strong vs weak; >2x cost savings with little quality loss [LLM-08].
 - **Role-based model assignment** is the practical form: a strong model for the orchestrator and planner, a cheaper one for subagents, summarisation and compaction. Anthropic's research system used an Opus lead with Sonnet subagents [AGT-02].
 
+- **Update (2026-11-03):** newer evidence is more sceptical. Independent benchmarks find most routers, commercial ones included, fail to reliably beat a simple single-model baseline [RTE-03, RTE-04]. For coding agents, switching models mid-session also forfeits the prompt cache. See [doc 12](12-model-routing-and-local-models.md) for the routing design and for local models.
+
 ## Recommendations for our harness
 1. Write **native adapters** for Anthropic Messages and OpenAI Responses first (and Gemini next), behind one `Provider` interface: `stream(request) → AsyncIterable<Event>`.
 2. Add a **generic OpenAI-compatible adapter** covering vLLM, Ollama, OpenRouter, LiteLLM proxy and Groq, as the long tail.
