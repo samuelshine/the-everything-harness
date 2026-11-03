@@ -18,5 +18,9 @@ These decisions are open, with the research's current lean. Sources are in [synt
 | 0005 | TUI rendering | Inline differential renderer by default; alternate screen opt-in |
 | 0006 | Memory backend | Files and grep first; pluggable store behind a memory tool |
 | 0007 | Multi-agent default | Single writer; parallel subagents for read-heavy work only |
-| 0008 | Default approval posture | Sandboxed workspace-write; prompt only for escapes |
-| [0009](0009-provider-auth-and-subscriptions.md) (Proposed) | Provider authentication and subscription access | API keys everywhere; ChatGPT plan via Sign in with ChatGPT (open-source route); Claude subscriptions only through the user's own Claude Code; never reuse first-party logins |
+| [0008](0008-default-approval-posture.md) (Accepted) | Default approval posture | Decided: ask before every action that changes something; sandbox stays on underneath. Research had leaned towards Codex-style workspace-write |
+| [0009](0009-provider-auth-and-subscriptions.md) (Accepted) | Provider authentication and subscription access | API keys everywhere; ChatGPT plan via Sign in with ChatGPT (open-source route); Claude subscriptions only through the user's own Claude Code; never reuse first-party logins |
+| [0010](0010-claude-code-compatibility.md) (Accepted) | Claude Code compatibility | Mirror flags, slash commands, project files and hooks; own settings directory and branding |
+| [0011](0011-telemetry.md) (Accepted) | Telemetry | Anonymous usage stats on by default; strict field allow-list; first-run notice; easy opt-out incl. `DO_NOT_TRACK` |
+| 0012 | Telemetry backend | To decide before the first public release |
+| 0013 | Windows sandbox | Not yet researched |
