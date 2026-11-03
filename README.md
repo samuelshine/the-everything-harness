@@ -30,3 +30,6 @@ evals/             task suites and harness benchmarks
 
 ## Contributing
 See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## License
+[Apache License 2.0](LICENSE). Contributions are accepted under the same license (section 5 of the license).
