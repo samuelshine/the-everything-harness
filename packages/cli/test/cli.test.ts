@@ -200,4 +200,46 @@ describe("teh cli", () => {
       expect((await call(["undo", "--yes"])).out).toContain("Nothing to undo");
     });
   });
+
+  describe("resume", () => {
+    test("-c continues the latest session with its history and model", async () => {
+      const cwd = temp();
+      const home = temp();
+      await call(["-p", "--model", "fake:first", "remember 42"], { cwd, home, turns: [say("ok, 42")] });
+      const r = await call(["-p", "-c", "what number?"], { cwd, home, turns: [say("42")] });
+      expect(r).toMatchObject({ code: 0, out: "42\n" });
+      const req = r.fake.requests[0];
+      expect(req?.model).toBe("first");
+      expect(req?.items.map((i) => (i.kind === "text" ? `${i.role}:${i.text}` : i.kind))).toEqual([
+        "user:remember 42",
+        "assistant:ok, 42",
+        "user:what number?",
+      ]);
+      const sessions = await call(["sessions"], { cwd, home });
+      expect(sessions.out).toContain("2 prompts");
+      expect(sessions.out).toContain("remember 42");
+    });
+
+    test("-r picks a session by prefix; unknown ids and -c with -r are errors", async () => {
+      const cwd = temp();
+      const home = temp();
+      const first = await call(["-p", "--model", "fake:fake", "--output-format", "json", "alpha"], {
+        cwd,
+        home,
+        turns: [say("A")],
+      });
+      const id = JSON.parse(first.out).session_id as string;
+      await call(["-p", "--model", "fake:fake", "beta"], { cwd, home, turns: [say("B")] });
+      const r = await call(["-p", "-r", id.slice(0, 30), "again"], { cwd, home, turns: [say("A2")] });
+      expect(r.fake.requests[0]?.items[0]).toEqual({ kind: "text", role: "user", text: "alpha" });
+      expect((await call(["-p", "-r", "nope", "x"], { cwd, home })).code).toBe(2);
+      expect((await call(["-p", "-c", "-r", id, "x"], { cwd, home })).code).toBe(2);
+    });
+
+    test("-c with no earlier session explains", async () => {
+      const r = await call(["-p", "-c", "hi"]);
+      expect(r.code).toBe(2);
+      expect(r.err).toContain("no earlier session");
+    });
+  });
 });
