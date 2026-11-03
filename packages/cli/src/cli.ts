@@ -3,7 +3,7 @@ import { VERSION } from "@everything-harness/core";
 
 export type Io = { out: (s: string) => void; err: (s: string) => void };
 
-export const USAGE = `Usage: harness [options]
+export const USAGE = `Usage: teh [options]
 
 Options:
   -p, --print <prompt>  Run one prompt headlessly and print the result (not implemented yet)
@@ -16,7 +16,7 @@ export async function run(argv: string[], io: Io): Promise<number> {
   switch (arg) {
     case "-v":
     case "--version":
-      io.out(`harness ${VERSION}\n`);
+      io.out(`teh ${VERSION}\n`);
       return 0;
     case undefined:
     case "-h":
@@ -26,13 +26,13 @@ export async function run(argv: string[], io: Io): Promise<number> {
     case "-p":
     case "--print":
       if (rest.length === 0) {
-        io.err("harness: --print needs a prompt\n");
+        io.err("teh: --print needs a prompt\n");
         return 2;
       }
-      io.err("harness: headless mode is not implemented yet\n");
+      io.err("teh: headless mode is not implemented yet\n");
       return 1;
     default:
-      io.err(`harness: unknown option '${arg}'\n\n${USAGE}`);
+      io.err(`teh: unknown option '${arg}'\n\n${USAGE}`);
       return 2;
   }
 }

@@ -9,9 +9,9 @@ async function call(...argv: string[]) {
   return { code, out, err };
 }
 
-describe("harness cli", () => {
+describe("teh cli", () => {
   test("--version prints the core version", async () => {
-    expect(await call("--version")).toEqual({ code: 0, out: `harness ${VERSION}\n`, err: "" });
+    expect(await call("--version")).toEqual({ code: 0, out: `teh ${VERSION}\n`, err: "" });
   });
 
   test("no arguments prints usage", async () => {

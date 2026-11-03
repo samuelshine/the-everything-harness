@@ -35,4 +35,4 @@ jobs:
       - name: Smoke test the compiled binary
         run: |
           ext=""; [ "$RUNNER_OS" = "Windows" ] && ext=".exe"
-          ./packages/cli/dist/harness$ext --version
+          ./packages/cli/dist/teh$ext --version
