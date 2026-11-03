@@ -1,5 +1,6 @@
 // Argument parsing and dispatch, kept free of process globals so it can be tested.
 import { homedir } from "node:os";
+import { join } from "node:path";
 import { parseArgs } from "node:util";
 import {
   type AgentEvent,
@@ -8,6 +9,7 @@ import {
   CheckpointError,
   CheckpointStore,
   createProvider,
+  DEFAULT_EMBED_MODEL,
   expandSkill,
   findProjectRoot,
   findSession,
@@ -22,8 +24,13 @@ import {
   parseRules,
   parseSlash,
   type RestorePlan,
+  ROUTER_MODES,
+  type RouteResult,
+  type RouterMode,
   runAgent,
   SessionLog,
+  type Skill,
+  SkillRouter,
   similarNames,
   tehHome,
   VERSION,
@@ -64,6 +71,10 @@ Options:
   --disallowedTools <rules...>  Always deny, e.g. "Bash"
   --add-dir <dir...>            Extra directories the agent may change
   --max-turns <n>               Stop after n model turns (default 50)
+  --skill-router <mode>         off (default), embed, or embed+confirm: suggest skills to the model
+                                before it starts (or set TEH_SKILL_ROUTER). Uses nomic-embed-text
+                                (TEH_SKILL_ROUTER_EMBED_MODEL) and, for confirm, a small model
+                                set with TEH_SKILL_ROUTER_MODEL, e.g. ollama:qwen2.5:0.5b
   -y, --yes                     Restore without asking (rewind, undo, restore)
   -v, --version                 Print the version
   -h, --help                    Show this help
@@ -172,6 +183,12 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     if (!resumed) return usageError(io, `no single session matches ${v.resume}; \`teh sessions\` lists them`);
   }
 
+  const routerMode = (v["skill-router"] ?? io.env.TEH_SKILL_ROUTER ?? "off") as RouterMode;
+  if (!ROUTER_MODES.includes(routerMode))
+    return usageError(io, `--skill-router must be one of ${ROUTER_MODES.join(", ")}`);
+  if (routerMode === "embed+confirm" && !io.env.TEH_SKILL_ROUTER_MODEL)
+    return usageError(io, "--skill-router embed+confirm needs TEH_SKILL_ROUTER_MODEL, e.g. ollama:qwen2.5:0.5b");
+
   const modelSpec = v.model ?? resumed?.model ?? io.env.TEH_MODEL;
   if (!modelSpec) {
     io.err(
@@ -194,6 +211,11 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     }
     for (const note of probe.notes) io.err(`teh: warning: ${note}\n`);
 
+    const skillRoute = slash ? undefined : await routeSkills(io, routerMode, typed, skills, home, makeProvider);
+    if (skillRoute && format === "text" && skillRoute.chosen.length) {
+      const scores = skillRoute.candidates.filter((c) => skillRoute.chosen.includes(c.name));
+      io.err(`› skill router suggests ${scores.map((c) => `${c.name} (${c.score})`).join(", ")}\n`);
+    }
     const session = new SessionLog(home, root, undefined, resumed);
     const store = new CheckpointStore(home, root);
     const denied: string[] = [];
@@ -224,6 +246,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       },
       ...(resumed ? { history: resumed.items } : {}),
       ...(slash ? { slash } : {}),
+      ...(skillRoute ? { skillRoute } : {}),
       skills,
       skillListingChars: Math.max(4000, Math.round((probe.contextWindow ?? 0) * 0.04)),
       checkpoint: async ({ first, title }) =>
@@ -290,6 +313,7 @@ function parse(argv: string[]) {
       "code-only": { type: "boolean" },
       "conversation-only": { type: "boolean" },
       session: { type: "string" },
+      "skill-router": { type: "string" },
       version: { type: "boolean", short: "v" },
       help: { type: "boolean", short: "h" },
     },
@@ -474,4 +498,35 @@ function printSkills(io: Io): number {
   }
   for (const p of problems) io.out(`  skipped ${p.path}: ${p.message}\n`);
   return 0;
+}
+
+// Runs the skill router when it is on. A failure warns and the run continues without it.
+async function routeSkills(
+  io: Io,
+  mode: RouterMode,
+  prompt: string,
+  skills: Skill[],
+  home: string,
+  makeProvider: (name: string) => Provider,
+): Promise<RouteResult | undefined> {
+  if (mode === "off" || !skills.some((s) => s.modelInvocable)) return undefined;
+  try {
+    const embedModel = io.env.TEH_SKILL_ROUTER_EMBED_MODEL ?? DEFAULT_EMBED_MODEL;
+    const confirmRef = io.env.TEH_SKILL_ROUTER_MODEL ? parseModelRef(io.env.TEH_SKILL_ROUTER_MODEL) : undefined;
+    const router = new SkillRouter({
+      mode,
+      embedder: makeProvider("ollama"),
+      embedModel,
+      cacheFile: join(home, "cache", "skill-embeddings.json"),
+      ...(io.env.TEH_SKILL_ROUTER_THRESHOLD ? { threshold: Number(io.env.TEH_SKILL_ROUTER_THRESHOLD) } : {}),
+      ...(confirmRef ? { confirm: { provider: makeProvider(confirmRef.provider), model: confirmRef.model } } : {}),
+    });
+    const r = await router.route(prompt, skills);
+    if (r.note) io.err(`teh: skill router: ${r.note}\n`);
+    return r;
+  } catch (e) {
+    const hint = e instanceof ProviderError && e.hint ? ` (${e.hint})` : "";
+    io.err(`teh: warning: skill router skipped: ${(e as Error).message}${hint}\n`);
+    return undefined;
+  }
 }

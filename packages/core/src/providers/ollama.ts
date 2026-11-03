@@ -64,7 +64,7 @@ export class OllamaProvider implements Provider {
   }
 
   async *stream(req: ModelRequest, signal?: AbortSignal): AsyncIterable<StreamEvent> {
-    const numCtx = await this.contextFor(req.model);
+    const numCtx = Math.min(await this.contextFor(req.model), req.contextTokens ?? Number.POSITIVE_INFINITY);
     const estimate = estimateTokens(req);
     if (estimate > numCtx * 0.9) {
       throw new ProviderError(
@@ -87,7 +87,12 @@ export class OllamaProvider implements Provider {
             function: { name: t.name, description: t.description, parameters: t.inputSchema },
           })),
           stream: true,
-          options: { num_ctx: numCtx, ...(req.maxOutputTokens ? { num_predict: req.maxOutputTokens } : {}) },
+          ...(req.json ? { format: "json" } : {}),
+          options: {
+            num_ctx: numCtx,
+            ...(req.maxOutputTokens ? { num_predict: req.maxOutputTokens } : {}),
+            ...(req.temperature !== undefined ? { temperature: req.temperature } : {}),
+          },
         }),
         ...(signal ? { signal } : {}),
       },
@@ -122,6 +127,21 @@ export class OllamaProvider implements Provider {
         yield { type: "stop", reason };
       }
     }
+  }
+
+  async embed(model: string, inputs: string[]): Promise<number[][]> {
+    const res = await this.fetch(
+      "/api/embed",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ model, input: inputs }),
+      },
+      model,
+    );
+    const body = (await res.json()) as { embeddings?: number[][]; error?: string };
+    if (!body.embeddings) throw new ProviderError("bad_request", `ollama: ${body.error ?? "no embeddings returned"}`);
+    return body.embeddings;
   }
 
   // The window we will actually request: our default, capped at the model's maximum.

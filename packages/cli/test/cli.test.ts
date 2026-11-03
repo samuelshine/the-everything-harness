@@ -427,4 +427,31 @@ describe("teh cli", () => {
       expect(r.fake.requests[0]?.items[0]).toMatchObject({ text: "/tmp/a.txt looks wrong" });
     });
   });
+
+  test("--skill-router embed adds a hint after the prompt and logs it", async () => {
+    const cwd = temp();
+    const home = temp();
+    mkdirSync(join(home, ".claude/skills/human"), { recursive: true });
+    writeFileSync(
+      join(home, ".claude/skills/human/SKILL.md"),
+      "---\nname: human\ndescription: rewrite prose\n---\nbody\n",
+    );
+    const fake = new FakeProvider([say("ok")]);
+    const withEmbed = Object.assign(fake, {
+      embed: async (_m: string, inputs: string[]) => inputs.map((s) => [s.includes("rewrite") ? 1 : 0, 1]),
+    });
+    let err = "";
+    await run(
+      ["-p", "--model", "fake:fake", "--skill-router", "embed", "rewrite my intro"],
+      { out: () => {}, err: (s) => (err += s), env: { TEH_HOME: home, HOME: home }, cwd, stdin: async () => undefined },
+      { provider: () => withEmbed as Provider },
+    );
+    expect(err).toContain("skill router suggests human");
+    expect(fake.requests[0]?.items.map((i) => (i.kind === "text" ? i.text : ""))).toEqual([
+      "rewrite my intro",
+      expect.stringContaining("Skill router: these skills look relevant to this request: human"),
+    ]);
+    const bad = await call(["-p", "--model", "fake:fake", "--skill-router", "embed+confirm", "x"]);
+    expect(bad.err).toContain("TEH_SKILL_ROUTER_MODEL");
+  });
 });

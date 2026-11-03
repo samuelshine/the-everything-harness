@@ -6,6 +6,7 @@ import { findProjectRoot, loadInstructions, renderInstructions } from "./instruc
 import { decide, type PermissionConfig } from "./permissions";
 import { systemPrompt } from "./prompt";
 import type { Provider } from "./providers/provider";
+import { type RouteResult, routerHint } from "./router";
 import type { SessionLog } from "./session";
 import { type Skill, skillListing } from "./skills";
 import { skillTool } from "./tools/skill";
@@ -42,6 +43,8 @@ export type AgentOptions = {
   userInstructionsFile?: string;
   // Set when the prompt came from "/name args"; logged with the expanded prompt.
   slash?: { name: string; args: string };
+  // The skill router's result for this prompt (ADR-0015); its hint follows the prompt.
+  skillRoute?: RouteResult;
   // Skills the model may load with the Skill tool (ADR-0015), and the listing budget.
   skills?: Skill[];
   skillListingChars?: number;
@@ -122,6 +125,12 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
 
   const items: Item[] = [...(opts.history ?? []), { kind: "text", role: "user", text: opts.prompt }];
   log?.append("user_message", { text: opts.prompt, ...(opts.slash ? { slash: opts.slash } : {}) });
+  if (opts.skillRoute) {
+    const hint = routerHint(opts.skillRoute);
+    // Sent as its own message so the system prompt (and its cache) stays the same per prompt.
+    if (hint) items.push({ kind: "text", role: "user", text: hint });
+    log?.append("skill_route", { ...opts.skillRoute, ...(hint ? { hint } : {}) });
+  }
 
   let usage = emptyUsage();
   let result = "";

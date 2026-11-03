@@ -1,0 +1,194 @@
+[
+  {
+    "prompt": "Make this paragraph sound less robotic: 'Our cutting-edge platform leverages synergies.'",
+    "expected": "human"
+  },
+  {
+    "prompt": "Can you polish my cover letter so it doesn't read like ChatGPT wrote it?",
+    "expected": "human"
+  },
+  {
+    "prompt": "This blog intro feels stiff and generic, rewrite it naturally.",
+    "expected": "human"
+  },
+  {
+    "prompt": "Rewrite this README introduction so it reads like a person wrote it.",
+    "expected": "human"
+  },
+  {
+    "prompt": "Find and compare the main approaches to LLM model routing, with sources.",
+    "expected": "research"
+  },
+  {
+    "prompt": "What does the literature say about retrieval-augmented generation for code? Cite papers.",
+    "expected": "research"
+  },
+  {
+    "prompt": "Survey the current terminal UI frameworks for TypeScript and summarise the trade-offs.",
+    "expected": "research"
+  },
+  {
+    "prompt": "I need a cited overview of how other coding agents handle sandboxing.",
+    "expected": "research"
+  },
+  {
+    "prompt": "Commit my changes with a good message.",
+    "expected": "commit"
+  },
+  {
+    "prompt": "Write a commit message for what's staged and commit it.",
+    "expected": "commit"
+  },
+  {
+    "prompt": "Save this work to git.",
+    "expected": "commit"
+  },
+  {
+    "prompt": "Extract the tables from invoice.pdf into CSV.",
+    "expected": "pdf"
+  },
+  {
+    "prompt": "Merge chapter1.pdf and chapter2.pdf into one file.",
+    "expected": "pdf"
+  },
+  {
+    "prompt": "Fill in the form fields in application.pdf with my details.",
+    "expected": "pdf"
+  },
+  {
+    "prompt": "Review my latest changes before I open the PR.",
+    "expected": "code-review"
+  },
+  {
+    "prompt": "Can you look over this diff and tell me if anything is risky?",
+    "expected": "code-review"
+  },
+  {
+    "prompt": "Check PR 42 for bugs.",
+    "expected": "code-review"
+  },
+  {
+    "prompt": "Add unit tests for the parseArgs function.",
+    "expected": "write-tests"
+  },
+  {
+    "prompt": "Our coverage on utils.ts is low, write tests for it.",
+    "expected": "write-tests"
+  },
+  {
+    "prompt": "Write a regression test for the bug we just fixed.",
+    "expected": "write-tests"
+  },
+  {
+    "prompt": "How does the session replay in session.ts work?",
+    "expected": "explain-code"
+  },
+  {
+    "prompt": "Walk me through what this function does, I'm new to the codebase.",
+    "expected": "explain-code"
+  },
+  {
+    "prompt": "Explain the agent loop to me.",
+    "expected": "explain-code"
+  },
+  {
+    "prompt": "This query is slow: SELECT * FROM orders WHERE user_id = 5. How do I speed it up?",
+    "expected": "sql"
+  },
+  {
+    "prompt": "Write a query that returns the top 10 customers by revenue last month.",
+    "expected": "sql"
+  },
+  {
+    "prompt": "Design a schema for users, teams and memberships.",
+    "expected": "sql"
+  },
+  {
+    "prompt": "My docker build fails at npm install, fix the Dockerfile.",
+    "expected": "docker"
+  },
+  {
+    "prompt": "Write a docker-compose file with postgres and the api.",
+    "expected": "docker"
+  },
+  {
+    "prompt": "Make the container image smaller.",
+    "expected": "docker"
+  },
+  {
+    "prompt": "Translate this error message into Spanish and German.",
+    "expected": "translate"
+  },
+  {
+    "prompt": "Localise the onboarding strings to French.",
+    "expected": "translate"
+  },
+  {
+    "prompt": "Put this paragraph into Japanese, keep it formal.",
+    "expected": "translate"
+  },
+  {
+    "prompt": "Draft release notes for v0.3 from the recent commits.",
+    "expected": "changelog"
+  },
+  {
+    "prompt": "Write the CHANGELOG entry for this release.",
+    "expected": "changelog"
+  },
+  {
+    "prompt": "Summarise what changed since the last tag for our users.",
+    "expected": "changelog"
+  },
+  {
+    "prompt": "Is there any SQL injection risk in the login handler?",
+    "expected": "security-review"
+  },
+  {
+    "prompt": "Audit this repo for hard-coded secrets.",
+    "expected": "security-review"
+  },
+  {
+    "prompt": "Check the auth middleware for security holes.",
+    "expected": "security-review"
+  },
+  {
+    "prompt": "Fix the off-by-one error in sum.js.",
+    "expected": null
+  },
+  {
+    "prompt": "Rename the variable tmp to total in cart.ts.",
+    "expected": null
+  },
+  {
+    "prompt": "Run the tests and tell me what fails.",
+    "expected": null
+  },
+  {
+    "prompt": "What's the difference between let and const?",
+    "expected": null
+  },
+  {
+    "prompt": "Add a --verbose flag to the CLI.",
+    "expected": null
+  },
+  {
+    "prompt": "Delete the unused imports in index.ts.",
+    "expected": null
+  },
+  {
+    "prompt": "Why is my build failing with 'cannot find module'?",
+    "expected": null
+  },
+  {
+    "prompt": "Move the helper functions into a utils folder.",
+    "expected": null
+  },
+  {
+    "prompt": "Bump the version number to 1.2.0 in package.json.",
+    "expected": null
+  },
+  {
+    "prompt": "Make the button blue.",
+    "expected": null
+  }
+]

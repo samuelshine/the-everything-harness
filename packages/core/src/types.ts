@@ -23,6 +23,11 @@ export type ModelRequest = {
   items: Item[];
   tools: ToolSpec[];
   maxOutputTokens?: number;
+  // For small helper calls (e.g. the skill router): sampling temperature, reply as one JSON
+  // object, and an upper bound on the context window to allocate.
+  temperature?: number;
+  json?: boolean;
+  contextTokens?: number;
 };
 
 export type Usage = { input: number; cachedRead: number; cacheWrite: number; output: number };

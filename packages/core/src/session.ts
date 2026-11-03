@@ -20,6 +20,7 @@ export type SessionEventType =
   | "checkpoint"
   | "checkpoint_title"
   | "rewind"
+  | "skill_route"
   | "error"
   | "session_end";
 
@@ -179,6 +180,8 @@ function replay(events: SessionEvent[]) {
       add({ kind: "prompt", title: `Before prompt ${prompts}`, time: new Date(ev.ts), conversationAt: at });
       item = { kind: "text", role: "user", text };
     } else if (ev.type === "assistant_item" || ev.type === "tool_result") item = ev.data as Item;
+    else if (ev.type === "skill_route" && typeof data.hint === "string")
+      item = { kind: "text", role: "user", text: data.hint };
     else if (ev.type === "checkpoint" && (typeof data.sha === "string" || data.kind === "rewind")) {
       add({
         kind: data.kind === "rewind" ? "rewind" : "step",
