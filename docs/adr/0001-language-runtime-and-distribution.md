@@ -1,6 +1,6 @@
 # 0001 — Language, runtime and distribution
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-03)
 - **Date:** 2026-11-02
 - **Deciders:** Samuel Shine
 - **Related research:** [synthesis §5.1](../research/00-synthesis.md#5-decisions-to-make), [10 §7, §13, §14](../research/10-terminal-harness.md), [11 §2](../research/11-competitive-landscape.md); sources [CMP-15], [TRM-14], [TRM-18], [TRM-21], [TRM-27]–[TRM-32], [LLM-07], [MCP-01], [MCP-12]
@@ -66,3 +66,12 @@ A one-week spike on a branch:
 4. Connect to one MCP server and one provider (Anthropic + OpenAI) using the official SDKs inside the compiled binary.
 
 Accept this ADR if all four pass; otherwise re-evaluate Option C.
+
+### Spike outcome (2026-11-03)
+Results are in [`spikes/0001-bun-runtime/README.md`](../../spikes/0001-bun-runtime/README.md).
+1. ✅ Compiled binaries on macOS, Linux and Windows; cold start 37–115 ms against a 300 ms target. Size is 70–94 MiB, so we ship one binary with subcommands.
+2. ✅ The inline differential renderer is stable in Terminal.app; the naive full redraw is visibly glitchy. Other terminals are still to be checked during TUI work.
+3. ✅ `sandbox-exec` and `bwrap` deny network and writes outside the workspace. Paths must be canonicalised, and Ubuntu 24.04 needs unprivileged user namespaces. Windows needs its own ADR.
+4. ✅ An MCP stdio client and server work inside the compiled binary. The Anthropic and OpenAI SDKs load and reach the network layer inside the binary. **Deferred:** a live call with real API keys, to be run before the first provider adapter merges.
+
+Accepted on that basis. If the deferred live call fails because of the runtime rather than an account issue, reopen this ADR.

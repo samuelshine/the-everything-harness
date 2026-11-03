@@ -34,6 +34,13 @@ Use [Conventional Commits](https://www.conventionalcommits.org/):
 - One topic per PR, with a description that says what changed, why, and how it was verified.
 - Link the ADR when a PR implements or changes an architectural decision.
 
+## Development
+- Toolchain: Bun 1.4.3 (runtime, package manager, test runner, compiler), TypeScript 7 in strict mode for type checking, Biome for lint and format. See [ADR-0001](docs/adr/0001-language-runtime-and-distribution.md).
+- Run `bun run check` before pushing; CI runs the same checks, plus a compiled-binary smoke test, on Linux, macOS and Windows.
+- `bun run format` fixes formatting and import order. Biome is configured to leave Markdown alone.
+- Packages live in `packages/<name>` with `src/` and `test/`; tests are `*.test.ts` using `bun:test`. Workspace packages import each other by name (`@everything-harness/core`), never by relative path.
+- Keep `packages/core` free of terminal and process globals so every client (CLI, TUI, ACP, server) can share it.
+
 ## Decisions
 Significant technical choices are recorded as ADRs in [`docs/adr/`](docs/adr/README.md). Open a new ADR from the template rather than editing an accepted one; supersede it instead.
 
