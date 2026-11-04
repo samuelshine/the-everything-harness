@@ -21,7 +21,6 @@ import {
   type Provider,
   ProviderError,
   parseModelRef,
-  parseRules,
   parseSlash,
   type RestorePlan,
   ROUTER_MODES,
@@ -35,6 +34,7 @@ import {
   tehHome,
   VERSION,
 } from "@everything-harness/core";
+import { printPermissions, runPermissions, trust } from "./permissions";
 import { rewind } from "./rewind";
 
 export type Io = {
@@ -55,6 +55,7 @@ export type Deps = { provider?: (name: string) => Provider };
 export const USAGE = `Usage: teh -p [options] [prompt]
        teh models
        teh rewind [point] | teh undo | teh sessions | teh checkpoints | teh restore <id>
+       teh skills | teh permissions | teh trust
 
 Run one prompt headlessly and print the result. The prompt can also be piped on stdin.
 The interactive terminal UI is not built yet.
@@ -67,8 +68,11 @@ Options:
                                 session keeps its model unless you pass one)
   --output-format <format>      text (default), json or stream-json
   --permission-mode <mode>      default (ask; denied when headless), acceptEdits, plan, bypassPermissions
-  --allowedTools <rules...>     Allow without asking, e.g. "Edit" "Bash(npm test)"
-  --disallowedTools <rules...>  Always deny, e.g. "Bash"
+  --allowedTools <rules...>     Allow without asking, e.g. "Edit" "Bash(npm test:*)" "Bash(git add *)"
+  --disallowedTools <rules...>  Always deny, e.g. "Bash(git push:*)" "Read(.env)"
+                                Rules can also go in .teh/settings.json or .claude/settings.json:
+                                {"permissions": {"allow": [...], "ask": [...], "deny": [...]}}.
+                                Read-only commands (ls, cat, grep, git status, …) never ask
   --add-dir <dir...>            Extra directories the agent may change
   --max-turns <n>               Stop after n model turns (default 50)
   --skill-router <mode>         off (default), embed, or embed+confirm: suggest skills to the model
@@ -89,6 +93,8 @@ Commands:
   skills                        List skills and commands; run one with teh -p "/name args"
   sessions                      List this project's sessions, newest first
   checkpoints                   List file snapshots taken before each run changed anything
+  permissions                   Show the permission rules in effect and where each comes from
+  trust [--revoke]              Let this project's own allow rules and skill grants apply
   undo                          Put files back as they were before the last run that changed them
   restore <id>                  Put files back to a checkpoint (undo a restore with the id it prints)
 `;
@@ -115,6 +121,11 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   if (positionals[0] === "checkpoints") return listCheckpoints(io);
   if (positionals[0] === "sessions") return printSessions(io);
   if (positionals[0] === "skills") return printSkills(io);
+  if (positionals[0] === "trust") return trust(io, v.revoke ?? false, userHome(io));
+  if (positionals[0] === "permissions") {
+    const root = findProjectRoot(io.cwd);
+    return printPermissions(io, loadSkills(tehHome(io.env), root, userHome(io)).skills, userHome(io));
+  }
   if (positionals[0] === "rewind") {
     if (v["code-only"] && v["conversation-only"]) return usageError(io, "choose --code-only or --conversation-only");
     return rewind(io, {
@@ -156,8 +167,17 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
 
   const root = findProjectRoot(io.cwd);
   const home = tehHome(io.env);
-  const { skills, problems } = loadSkills(home, root, userHome(io));
-  for (const p of problems) io.err(`teh: warning: skipped ${p.path}: ${p.message}\n`);
+  const loaded = loadSkills(home, root, userHome(io));
+  for (const p of loaded.problems) io.err(`teh: warning: skipped ${p.path}: ${p.message}\n`);
+  const perms = runPermissions(io, {
+    mode,
+    allowed: v.allowedTools ?? [],
+    disallowed: v.disallowedTools ?? [],
+    skills: loaded.skills,
+    home: userHome(io),
+  });
+  for (const w of perms.warnings) io.err(`teh: warning: ${w}\n`);
+  const skills = perms.skills;
   // "/name args" runs a skill or command (ADR-0015).
   let prompt = typed;
   const slash = parseSlash(typed);
@@ -218,7 +238,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     }
     const session = new SessionLog(home, root, undefined, resumed);
     const store = new CheckpointStore(home, root);
-    const denied: string[] = [];
+    const denied: Denied[] = [];
     const text = textOutput(io, denied);
     const checkpoint = { taken: false };
     const onEvent = format === "stream-json" ? streamJson(io) : format === "text" ? text.onEvent : trackDenied(denied);
@@ -234,7 +254,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       prompt,
       cwd: io.cwd,
       tools: builtinTools,
-      permissions: { mode, allow: parseRules(v.allowedTools ?? []), deny: parseRules(v.disallowedTools ?? []) },
+      permissions: perms.config,
       // Headless runs cannot ask, so anything that needs approval is denied (ADR-0008).
       ask: async () => false,
       addDirs: v["add-dir"] ?? [],
@@ -260,13 +280,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
         io.err("teh: `teh undo` reverts this run's file changes; `teh rewind` goes back to any step\n");
       }
       if (res.stopReason === "max_turns") io.err(`teh: stopped after ${maxTurns} turns (--max-turns)\n`);
-      if (denied.length) {
-        io.err(
-          `teh: ${denied.length} action(s) needed approval and were denied. To allow them, re-run with\n` +
-            `  --permission-mode acceptEdits   (file edits in this project), and/or\n` +
-            `  --allowedTools "Bash(<exact command>)"\n`,
-        );
-      }
+      if (denied.length) io.err(denialHint(denied));
     } else {
       io.out(
         `${JSON.stringify({
@@ -279,7 +293,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
           duration_ms: Math.round(performance.now() - started),
           session_id: session.id,
           usage: res.usage,
-          denied_actions: denied,
+          denied_actions: denied.map((d) => d.summary),
+          suggested_rules: [...new Set(denied.flatMap((d) => (d.suggestion ? [d.suggestion] : [])))],
         })}\n`,
       );
     }
@@ -314,6 +329,7 @@ function parse(argv: string[]) {
       "conversation-only": { type: "boolean" },
       session: { type: "string" },
       "skill-router": { type: "string" },
+      revoke: { type: "boolean" },
       version: { type: "boolean", short: "v" },
       help: { type: "boolean", short: "h" },
     },
@@ -349,7 +365,28 @@ async function listModels(io: Io, makeProvider: (name: string) => Provider): Pro
 }
 
 // Plain text: the answer streams to stdout; tool activity goes to stderr.
-function textOutput(io: Io, denied: string[]) {
+type Denied = { summary: string; suggestion?: string };
+
+function noteDenied(denied: Denied[], e: Extract<AgentEvent, { type: "approval" }>) {
+  denied.push({ summary: e.summary, ...(e.suggestion ? { suggestion: e.suggestion } : {}) });
+}
+
+// What to pass next time so the denied actions run, shell-quoted for copying.
+function denialHint(denied: Denied[]): string {
+  const rules = [...new Set(denied.flatMap((d) => (d.suggestion ? [d.suggestion] : [])))];
+  const edits = rules.includes("Edit");
+  const others = rules.filter((r) => r !== "Edit");
+  const lines = [`teh: ${denied.length} action(s) needed approval and were denied. To allow them next time:`];
+  if (edits) lines.push("  --permission-mode acceptEdits   (file edits in this project)");
+  if (others.length) {
+    lines.push(`  --allowedTools ${others.map((r) => `'${r.replace(/'/g, "'\\''")}'`).join(" ")}`);
+    lines.push('  or add them to "permissions": {"allow": [...]} in .teh/settings.json');
+  }
+  if (!rules.length) lines.push("  see the reasons above; `teh permissions` shows the rules in effect");
+  return `${lines.join("\n")}\n`;
+}
+
+function textOutput(io: Io, denied: Denied[]) {
   let midLine = false;
   const endLine = () => {
     if (midLine) io.out("\n");
@@ -363,7 +400,7 @@ function textOutput(io: Io, denied: string[]) {
       endLine();
       io.err(`› ${e.summary ?? e.name}\n`);
     } else if (e.type === "approval" && e.behavior === "deny") {
-      denied.push(e.summary);
+      noteDenied(denied, e);
       io.err(`✗ denied: ${e.summary} (${e.reason})\n`);
     } else if (e.type === "warning") {
       io.err(`teh: warning: ${e.message}\n`);
@@ -379,9 +416,9 @@ function streamJson(io: Io) {
   return (e: AgentEvent) => io.out(`${JSON.stringify(e)}\n`);
 }
 
-function trackDenied(denied: string[]) {
+function trackDenied(denied: Denied[]) {
   return (e: AgentEvent) => {
-    if (e.type === "approval" && e.behavior === "deny") denied.push(e.summary);
+    if (e.type === "approval" && e.behavior === "deny") noteDenied(denied, e);
   };
 }
 

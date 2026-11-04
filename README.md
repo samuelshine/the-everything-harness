@@ -47,10 +47,20 @@ bun run build
 packages/cli/dist/teh models  # list local models and whether they support tools
 packages/cli/dist/teh -p --model ollama:gemma4:e4b "What does this repo do?"
 ```
-`teh` asks before every change by default (ADR-0008). Headless mode cannot ask, so it denies those actions and tells you which flags would allow them:
+`teh` asks before every change by default (ADR-0008). Reading the project and read-only commands such as `ls`, `cat`, `grep`, `sed -n 1,20p` and `git status/log/diff` run without asking. Headless mode cannot ask, so it denies everything else and prints the rule that would allow it:
 - `--permission-mode acceptEdits` allows file edits inside the workspace.
-- `--allowedTools "Bash(npm test)"` allows that exact command. Rules match whole commands only for now.
-- `--disallowedTools Bash` blocks a tool entirely. Deny rules win over everything.
+- `--allowedTools 'Bash(npm test:*)'` allows `npm test` with any arguments. `'Bash(npm test)'` allows only that exact command.
+- `--disallowedTools 'Bash(git push:*)' 'Read(.env)'` blocks those. Deny rules win over everything, including `bypassPermissions`.
+
+Rules apply to each part of a command: `npm test && git status` runs with only `Bash(npm test:*)` allowed, but `npm test; rm -rf ~` still asks. A command the parser can't read fully, such as one with `$(…)` or a here-doc, always asks (ADR-0003).
+
+Rules can also live in settings files, in Claude Code's format: `{"permissions": {"allow": [...], "ask": [...], "deny": [...]}}`.
+- **Where:** `~/.teh/settings.json` and `~/.claude/settings.json` for you, and `.teh/settings.json` or `.claude/settings.json` (plus `settings.local.json`) for a project.
+- **Trust:** a cloned repo's allow rules, and its skills' `allowed-tools`, are ignored until you run `teh trust` in it. Its deny and ask rules apply at once.
+- **Protected folders:** writes inside `.git`, `.teh`, `.claude` and `.agents` always ask.
+- **Checking:** `teh permissions` shows every rule in effect and where it comes from.
+
+There is no OS sandbox yet. Once you allow a command, it can do anything you could.
 
 Each run is saved as a session. `teh -p -c "..."` continues the most recent one with its full conversation and model. `teh sessions` lists them, and `teh -p -r <id> "..."` continues a specific one.
 
