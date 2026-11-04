@@ -198,7 +198,8 @@ describe("read-only commands run without asking (ADR-0003)", () => {
     expect(behavior("Bash", cmd("cat .env"), c)).toBe("ask");
     expect(behavior("Bash", cmd("cat config/.env"), c)).toBe("ask");
     expect(behavior("Bash", cmd("cat README.md"), c)).toBe("allow");
-    expect(behavior("Bash", cmd(`cat ${join(ws, ".env")}`), c)).toBe("ask");
+    // Forward slashes: in bash a backslash is an escape, Windows paths included.
+    expect(behavior("Bash", cmd(`cat ${join(ws, ".env").replaceAll("\\", "/")}`), c)).toBe("ask");
     expect(behavior("Read", { kind: "read", paths: [join(ws, ".env")], summary: "Read .env" }, c)).toBe("deny");
   });
 });
