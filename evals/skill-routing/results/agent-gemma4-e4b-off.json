@@ -1,0 +1,303 @@
+{
+  "summary": {
+    "main": "ollama:gemma4:e4b",
+    "router": "off",
+    "confirm": null,
+    "threshold": "default",
+    "recall": "20/38",
+    "exact": "30/48",
+    "falseAlarms": "0/10",
+    "withWrongExtra": "0/38",
+    "avgMs": 3070
+  },
+  "outcomes": [
+    {
+      "prompt": "Make this paragraph sound less robotic: 'Our cutting-edge platform leverages synergies.'",
+      "expected": "human",
+      "picked": ["human"],
+      "ms": 8081
+    },
+    {
+      "prompt": "Can you polish my cover letter so it doesn't read like ChatGPT wrote it?",
+      "expected": "human",
+      "picked": ["human"],
+      "ms": 1249
+    },
+    {
+      "prompt": "This blog intro feels stiff and generic, rewrite it naturally.",
+      "expected": "human",
+      "picked": [],
+      "ms": 2031
+    },
+    {
+      "prompt": "Rewrite this README introduction so it reads like a person wrote it.",
+      "expected": "human",
+      "picked": [],
+      "ms": 1726
+    },
+    {
+      "prompt": "Find and compare the main approaches to LLM model routing, with sources.",
+      "expected": "research",
+      "picked": ["research"],
+      "ms": 1258
+    },
+    {
+      "prompt": "What does the literature say about retrieval-augmented generation for code? Cite papers.",
+      "expected": "research",
+      "picked": ["research"],
+      "ms": 1887
+    },
+    {
+      "prompt": "Survey the current terminal UI frameworks for TypeScript and summarise the trade-offs.",
+      "expected": "research",
+      "picked": ["research"],
+      "ms": 1358
+    },
+    {
+      "prompt": "I need a cited overview of how other coding agents handle sandboxing.",
+      "expected": "research",
+      "picked": [],
+      "ms": 1540
+    },
+    {
+      "prompt": "Commit my changes with a good message.",
+      "expected": "commit",
+      "picked": ["commit"],
+      "ms": 1011
+    },
+    {
+      "prompt": "Write a commit message for what's staged and commit it.",
+      "expected": "commit",
+      "picked": ["commit"],
+      "ms": 1098
+    },
+    {
+      "prompt": "Save this work to git.",
+      "expected": "commit",
+      "picked": ["commit"],
+      "ms": 4002
+    },
+    {
+      "prompt": "Extract the tables from invoice.pdf into CSV.",
+      "expected": "pdf",
+      "picked": ["pdf"],
+      "ms": 1673
+    },
+    {
+      "prompt": "Merge chapter1.pdf and chapter2.pdf into one file.",
+      "expected": "pdf",
+      "picked": ["pdf"],
+      "ms": 2059
+    },
+    {
+      "prompt": "Fill in the form fields in application.pdf with my details.",
+      "expected": "pdf",
+      "picked": [],
+      "ms": 5046
+    },
+    {
+      "prompt": "Review my latest changes before I open the PR.",
+      "expected": "code-review",
+      "picked": ["code-review"],
+      "ms": 3113
+    },
+    {
+      "prompt": "Can you look over this diff and tell me if anything is risky?",
+      "expected": "code-review",
+      "picked": [],
+      "ms": 7261
+    },
+    {
+      "prompt": "Check PR 42 for bugs.",
+      "expected": "code-review",
+      "picked": ["code-review"],
+      "ms": 1102
+    },
+    {
+      "prompt": "Add unit tests for the parseArgs function.",
+      "expected": "write-tests",
+      "picked": [],
+      "ms": 2879
+    },
+    {
+      "prompt": "Our coverage on utils.ts is low, write tests for it.",
+      "expected": "write-tests",
+      "picked": [],
+      "ms": 1522
+    },
+    {
+      "prompt": "Write a regression test for the bug we just fixed.",
+      "expected": "write-tests",
+      "picked": [],
+      "ms": 2323
+    },
+    {
+      "prompt": "How does the session replay in session.ts work?",
+      "expected": "explain-code",
+      "picked": [],
+      "ms": 1174
+    },
+    {
+      "prompt": "Walk me through what this function does, I'm new to the codebase.",
+      "expected": "explain-code",
+      "picked": [],
+      "ms": 2915
+    },
+    {
+      "prompt": "Explain the agent loop to me.",
+      "expected": "explain-code",
+      "picked": [],
+      "ms": 15425
+    },
+    {
+      "prompt": "This query is slow: SELECT * FROM orders WHERE user_id = 5. How do I speed it up?",
+      "expected": "sql",
+      "picked": [],
+      "ms": 12260
+    },
+    {
+      "prompt": "Write a query that returns the top 10 customers by revenue last month.",
+      "expected": "sql",
+      "picked": [],
+      "ms": 1406
+    },
+    {
+      "prompt": "Design a schema for users, teams and memberships.",
+      "expected": "sql",
+      "picked": ["sql"],
+      "ms": 2394
+    },
+    {
+      "prompt": "My docker build fails at npm install, fix the Dockerfile.",
+      "expected": "docker",
+      "picked": [],
+      "ms": 1212
+    },
+    {
+      "prompt": "Write a docker-compose file with postgres and the api.",
+      "expected": "docker",
+      "picked": [],
+      "ms": 2585
+    },
+    {
+      "prompt": "Make the container image smaller.",
+      "expected": "docker",
+      "picked": [],
+      "ms": 1998
+    },
+    {
+      "prompt": "Translate this error message into Spanish and German.",
+      "expected": "translate",
+      "picked": [],
+      "ms": 1757
+    },
+    {
+      "prompt": "Localise the onboarding strings to French.",
+      "expected": "translate",
+      "picked": ["translate"],
+      "ms": 2056
+    },
+    {
+      "prompt": "Put this paragraph into Japanese, keep it formal.",
+      "expected": "translate",
+      "picked": [],
+      "ms": 2252
+    },
+    {
+      "prompt": "Draft release notes for v0.3 from the recent commits.",
+      "expected": "changelog",
+      "picked": ["changelog"],
+      "ms": 942
+    },
+    {
+      "prompt": "Write the CHANGELOG entry for this release.",
+      "expected": "changelog",
+      "picked": ["changelog"],
+      "ms": 971
+    },
+    {
+      "prompt": "Summarise what changed since the last tag for our users.",
+      "expected": "changelog",
+      "picked": ["changelog"],
+      "ms": 1247
+    },
+    {
+      "prompt": "Is there any SQL injection risk in the login handler?",
+      "expected": "security-review",
+      "picked": ["security-review"],
+      "ms": 2958
+    },
+    {
+      "prompt": "Audit this repo for hard-coded secrets.",
+      "expected": "security-review",
+      "picked": ["security-review"],
+      "ms": 1736
+    },
+    {
+      "prompt": "Check the auth middleware for security holes.",
+      "expected": "security-review",
+      "picked": ["security-review"],
+      "ms": 1046
+    },
+    {
+      "prompt": "Fix the off-by-one error in sum.js.",
+      "expected": null,
+      "picked": [],
+      "ms": 1508
+    },
+    {
+      "prompt": "Rename the variable tmp to total in cart.ts.",
+      "expected": null,
+      "picked": [],
+      "ms": 2956
+    },
+    {
+      "prompt": "Run the tests and tell me what fails.",
+      "expected": null,
+      "picked": [],
+      "ms": 1451
+    },
+    {
+      "prompt": "What's the difference between let and const?",
+      "expected": null,
+      "picked": [],
+      "ms": 19122
+    },
+    {
+      "prompt": "Add a --verbose flag to the CLI.",
+      "expected": null,
+      "picked": [],
+      "ms": 1802
+    },
+    {
+      "prompt": "Delete the unused imports in index.ts.",
+      "expected": null,
+      "picked": [],
+      "ms": 3395
+    },
+    {
+      "prompt": "Why is my build failing with 'cannot find module'?",
+      "expected": null,
+      "picked": [],
+      "ms": 3606
+    },
+    {
+      "prompt": "Move the helper functions into a utils folder.",
+      "expected": null,
+      "picked": [],
+      "ms": 1445
+    },
+    {
+      "prompt": "Bump the version number to 1.2.0 in package.json.",
+      "expected": null,
+      "picked": [],
+      "ms": 1856
+    },
+    {
+      "prompt": "Make the button blue.",
+      "expected": null,
+      "picked": [],
+      "ms": 1664
+    }
+  ]
+}

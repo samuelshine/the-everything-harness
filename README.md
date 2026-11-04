@@ -20,6 +20,7 @@ docs/
 packages/
   core/            engine: loop, sessions, tools, permissions, context, providers
   cli/             `teh` entrypoint, headless mode, flags
+evals/             measurements behind design choices (e.g. skill-routing)
 spikes/            throwaway experiments that validate an ADR
 CONTRIBUTING.md    branching, commits, PRs, development setup
 ```
@@ -28,7 +29,6 @@ Planned:
 packages/
   tui/             terminal client
   sandbox/         OS sandbox adapters
-evals/             task suites and harness benchmarks
 ```
 
 ## Development
@@ -64,6 +64,7 @@ Before a run changes anything, `teh` snapshots the project into a separate shado
 - `teh skills` lists them.
 - `teh -p "/human tidy README.md"` runs one by name.
 - The model also sees each skill's name and description, and loads a skill with the `Skill` tool when a request fits, for example "make this sound less like AI wrote it".
+- `--skill-router embed` (or `TEH_SKILL_ROUTER=embed`) has a local embedding model (`nomic-embed-text`) suggest a skill before the model starts. `embed+confirm` also asks a small model, set with `TEH_SKILL_ROUTER_MODEL=ollama:qwen2.5:0.5b`, to check the suggestion. Both are off by default; see [evals/skill-routing](evals/skill-routing/README.md) for when they help.
 
 Other flags: `--output-format text|json|stream-json`, `--max-turns`, `--add-dir`. The model can also come from `TEH_MODEL`. Ollama is found through `OLLAMA_HOST`, and `TEH_OLLAMA_NUM_CTX` sets the context window (default 65536, capped at the model's maximum). Sessions are saved as JSONL under `~/.teh/projects/` (ADR-0004). `teh` reads `AGENTS.md` and `CLAUDE.md` like Claude Code does.
 

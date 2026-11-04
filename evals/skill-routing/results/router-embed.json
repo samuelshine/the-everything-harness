@@ -1,0 +1,2821 @@
+{
+  "embedModel": "nomic-embed-text",
+  "rows": [
+    {
+      "threshold": 0.4,
+      "topK": 1,
+      "recall": "32/38",
+      "exact": "32/48",
+      "falseAlarms": "10/10",
+      "withWrongExtra": "6/38",
+      "avgMs": 15
+    },
+    {
+      "threshold": 0.4,
+      "topK": 3,
+      "recall": "35/38",
+      "exact": "0/48",
+      "falseAlarms": "10/10",
+      "withWrongExtra": "38/38",
+      "avgMs": 15
+    },
+    {
+      "threshold": 0.45,
+      "topK": 1,
+      "recall": "32/38",
+      "exact": "32/48",
+      "falseAlarms": "10/10",
+      "withWrongExtra": "6/38",
+      "avgMs": 15
+    },
+    {
+      "threshold": 0.45,
+      "topK": 3,
+      "recall": "35/38",
+      "exact": "0/48",
+      "falseAlarms": "10/10",
+      "withWrongExtra": "38/38",
+      "avgMs": 15
+    },
+    {
+      "threshold": 0.5,
+      "topK": 1,
+      "recall": "32/38",
+      "exact": "32/48",
+      "falseAlarms": "10/10",
+      "withWrongExtra": "6/38",
+      "avgMs": 15
+    },
+    {
+      "threshold": 0.5,
+      "topK": 3,
+      "recall": "35/38",
+      "exact": "0/48",
+      "falseAlarms": "10/10",
+      "withWrongExtra": "38/38",
+      "avgMs": 15
+    },
+    {
+      "threshold": 0.55,
+      "topK": 1,
+      "recall": "32/38",
+      "exact": "35/48",
+      "falseAlarms": "7/10",
+      "withWrongExtra": "5/38",
+      "avgMs": 15
+    },
+    {
+      "threshold": 0.55,
+      "topK": 3,
+      "recall": "34/38",
+      "exact": "7/48",
+      "falseAlarms": "7/10",
+      "withWrongExtra": "33/38",
+      "avgMs": 15
+    },
+    {
+      "threshold": 0.6,
+      "topK": 1,
+      "recall": "30/38",
+      "exact": "39/48",
+      "falseAlarms": "1/10",
+      "withWrongExtra": "4/38",
+      "avgMs": 15
+    },
+    {
+      "threshold": 0.6,
+      "topK": 3,
+      "recall": "32/38",
+      "exact": "27/48",
+      "falseAlarms": "1/10",
+      "withWrongExtra": "16/38",
+      "avgMs": 15
+    },
+    {
+      "threshold": 0.65,
+      "topK": 1,
+      "recall": "20/38",
+      "exact": "29/48",
+      "falseAlarms": "1/10",
+      "withWrongExtra": "2/38",
+      "avgMs": 15
+    },
+    {
+      "threshold": 0.65,
+      "topK": 3,
+      "recall": "21/38",
+      "exact": "27/48",
+      "falseAlarms": "1/10",
+      "withWrongExtra": "4/38",
+      "avgMs": 15
+    },
+    {
+      "threshold": 0.7,
+      "topK": 1,
+      "recall": "11/38",
+      "exact": "20/48",
+      "falseAlarms": "1/10",
+      "withWrongExtra": "0/38",
+      "avgMs": 15
+    },
+    {
+      "threshold": 0.7,
+      "topK": 3,
+      "recall": "11/38",
+      "exact": "20/48",
+      "falseAlarms": "1/10",
+      "withWrongExtra": "0/38",
+      "avgMs": 15
+    }
+  ],
+  "cases": [
+    {
+      "prompt": "Make this paragraph sound less robotic: 'Our cutting-edge platform leverages synergies.'",
+      "expected": "human",
+      "picked": [],
+      "ms": 280,
+      "scores": [
+        {
+          "name": "human",
+          "score": 0.606
+        },
+        {
+          "name": "research",
+          "score": 0.587
+        },
+        {
+          "name": "commit",
+          "score": 0.564
+        },
+        {
+          "name": "security-review",
+          "score": 0.519
+        },
+        {
+          "name": "code-review",
+          "score": 0.518
+        },
+        {
+          "name": "changelog",
+          "score": 0.514
+        },
+        {
+          "name": "sql",
+          "score": 0.51
+        },
+        {
+          "name": "pdf",
+          "score": 0.508
+        },
+        {
+          "name": "docker",
+          "score": 0.498
+        },
+        {
+          "name": "explain-code",
+          "score": 0.498
+        },
+        {
+          "name": "write-tests",
+          "score": 0.495
+        },
+        {
+          "name": "translate",
+          "score": 0.485
+        }
+      ]
+    },
+    {
+      "prompt": "Can you polish my cover letter so it doesn't read like ChatGPT wrote it?",
+      "expected": "human",
+      "picked": [],
+      "ms": 7,
+      "scores": [
+        {
+          "name": "human",
+          "score": 0.648
+        },
+        {
+          "name": "write-tests",
+          "score": 0.554
+        },
+        {
+          "name": "commit",
+          "score": 0.536
+        },
+        {
+          "name": "security-review",
+          "score": 0.536
+        },
+        {
+          "name": "code-review",
+          "score": 0.523
+        },
+        {
+          "name": "translate",
+          "score": 0.506
+        },
+        {
+          "name": "docker",
+          "score": 0.479
+        },
+        {
+          "name": "pdf",
+          "score": 0.477
+        },
+        {
+          "name": "changelog",
+          "score": 0.475
+        },
+        {
+          "name": "research",
+          "score": 0.473
+        },
+        {
+          "name": "sql",
+          "score": 0.472
+        },
+        {
+          "name": "explain-code",
+          "score": 0.429
+        }
+      ]
+    },
+    {
+      "prompt": "This blog intro feels stiff and generic, rewrite it naturally.",
+      "expected": "human",
+      "picked": [],
+      "ms": 8,
+      "scores": [
+        {
+          "name": "human",
+          "score": 0.626
+        },
+        {
+          "name": "changelog",
+          "score": 0.592
+        },
+        {
+          "name": "commit",
+          "score": 0.556
+        },
+        {
+          "name": "write-tests",
+          "score": 0.541
+        },
+        {
+          "name": "code-review",
+          "score": 0.532
+        },
+        {
+          "name": "security-review",
+          "score": 0.531
+        },
+        {
+          "name": "docker",
+          "score": 0.51
+        },
+        {
+          "name": "explain-code",
+          "score": 0.504
+        },
+        {
+          "name": "sql",
+          "score": 0.494
+        },
+        {
+          "name": "research",
+          "score": 0.486
+        },
+        {
+          "name": "pdf",
+          "score": 0.476
+        },
+        {
+          "name": "translate",
+          "score": 0.44
+        }
+      ]
+    },
+    {
+      "prompt": "Rewrite this README introduction so it reads like a person wrote it.",
+      "expected": "human",
+      "picked": [],
+      "ms": 7,
+      "scores": [
+        {
+          "name": "human",
+          "score": 0.725
+        },
+        {
+          "name": "commit",
+          "score": 0.626
+        },
+        {
+          "name": "write-tests",
+          "score": 0.574
+        },
+        {
+          "name": "changelog",
+          "score": 0.548
+        },
+        {
+          "name": "code-review",
+          "score": 0.533
+        },
+        {
+          "name": "security-review",
+          "score": 0.532
+        },
+        {
+          "name": "explain-code",
+          "score": 0.53
+        },
+        {
+          "name": "translate",
+          "score": 0.528
+        },
+        {
+          "name": "pdf",
+          "score": 0.526
+        },
+        {
+          "name": "docker",
+          "score": 0.516
+        },
+        {
+          "name": "research",
+          "score": 0.506
+        },
+        {
+          "name": "sql",
+          "score": 0.485
+        }
+      ]
+    },
+    {
+      "prompt": "Find and compare the main approaches to LLM model routing, with sources.",
+      "expected": "research",
+      "picked": [],
+      "ms": 8,
+      "scores": [
+        {
+          "name": "research",
+          "score": 0.656
+        },
+        {
+          "name": "sql",
+          "score": 0.594
+        },
+        {
+          "name": "code-review",
+          "score": 0.575
+        },
+        {
+          "name": "write-tests",
+          "score": 0.571
+        },
+        {
+          "name": "pdf",
+          "score": 0.57
+        },
+        {
+          "name": "security-review",
+          "score": 0.568
+        },
+        {
+          "name": "commit",
+          "score": 0.554
+        },
+        {
+          "name": "human",
+          "score": 0.548
+        },
+        {
+          "name": "changelog",
+          "score": 0.536
+        },
+        {
+          "name": "docker",
+          "score": 0.535
+        },
+        {
+          "name": "explain-code",
+          "score": 0.534
+        },
+        {
+          "name": "translate",
+          "score": 0.515
+        }
+      ]
+    },
+    {
+      "prompt": "What does the literature say about retrieval-augmented generation for code? Cite papers.",
+      "expected": "research",
+      "picked": [],
+      "ms": 7,
+      "scores": [
+        {
+          "name": "code-review",
+          "score": 0.671
+        },
+        {
+          "name": "research",
+          "score": 0.669
+        },
+        {
+          "name": "explain-code",
+          "score": 0.642
+        },
+        {
+          "name": "human",
+          "score": 0.633
+        },
+        {
+          "name": "security-review",
+          "score": 0.613
+        },
+        {
+          "name": "write-tests",
+          "score": 0.613
+        },
+        {
+          "name": "sql",
+          "score": 0.6
+        },
+        {
+          "name": "pdf",
+          "score": 0.595
+        },
+        {
+          "name": "changelog",
+          "score": 0.555
+        },
+        {
+          "name": "docker",
+          "score": 0.533
+        },
+        {
+          "name": "commit",
+          "score": 0.528
+        },
+        {
+          "name": "translate",
+          "score": 0.494
+        }
+      ]
+    },
+    {
+      "prompt": "Survey the current terminal UI frameworks for TypeScript and summarise the trade-offs.",
+      "expected": "research",
+      "picked": [],
+      "ms": 7,
+      "scores": [
+        {
+          "name": "write-tests",
+          "score": 0.61
+        },
+        {
+          "name": "code-review",
+          "score": 0.598
+        },
+        {
+          "name": "human",
+          "score": 0.545
+        },
+        {
+          "name": "security-review",
+          "score": 0.545
+        },
+        {
+          "name": "explain-code",
+          "score": 0.544
+        },
+        {
+          "name": "changelog",
+          "score": 0.543
+        },
+        {
+          "name": "docker",
+          "score": 0.542
+        },
+        {
+          "name": "commit",
+          "score": 0.537
+        },
+        {
+          "name": "research",
+          "score": 0.52
+        },
+        {
+          "name": "sql",
+          "score": 0.518
+        },
+        {
+          "name": "translate",
+          "score": 0.509
+        },
+        {
+          "name": "pdf",
+          "score": 0.503
+        }
+      ]
+    },
+    {
+      "prompt": "I need a cited overview of how other coding agents handle sandboxing.",
+      "expected": "research",
+      "picked": [],
+      "ms": 7,
+      "scores": [
+        {
+          "name": "code-review",
+          "score": 0.675
+        },
+        {
+          "name": "explain-code",
+          "score": 0.657
+        },
+        {
+          "name": "security-review",
+          "score": 0.631
+        },
+        {
+          "name": "human",
+          "score": 0.624
+        },
+        {
+          "name": "write-tests",
+          "score": 0.621
+        },
+        {
+          "name": "commit",
+          "score": 0.612
+        },
+        {
+          "name": "docker",
+          "score": 0.6
+        },
+        {
+          "name": "research",
+          "score": 0.57
+        },
+        {
+          "name": "pdf",
+          "score": 0.569
+        },
+        {
+          "name": "sql",
+          "score": 0.566
+        },
+        {
+          "name": "changelog",
+          "score": 0.552
+        },
+        {
+          "name": "translate",
+          "score": 0.523
+        }
+      ]
+    },
+    {
+      "prompt": "Commit my changes with a good message.",
+      "expected": "commit",
+      "picked": [],
+      "ms": 83,
+      "scores": [
+        {
+          "name": "commit",
+          "score": 0.766
+        },
+        {
+          "name": "changelog",
+          "score": 0.634
+        },
+        {
+          "name": "code-review",
+          "score": 0.558
+        },
+        {
+          "name": "human",
+          "score": 0.552
+        },
+        {
+          "name": "security-review",
+          "score": 0.539
+        },
+        {
+          "name": "docker",
+          "score": 0.535
+        },
+        {
+          "name": "write-tests",
+          "score": 0.523
+        },
+        {
+          "name": "translate",
+          "score": 0.516
+        },
+        {
+          "name": "pdf",
+          "score": 0.494
+        },
+        {
+          "name": "sql",
+          "score": 0.49
+        },
+        {
+          "name": "explain-code",
+          "score": 0.482
+        },
+        {
+          "name": "research",
+          "score": 0.451
+        }
+      ]
+    },
+    {
+      "prompt": "Write a commit message for what's staged and commit it.",
+      "expected": "commit",
+      "picked": [],
+      "ms": 8,
+      "scores": [
+        {
+          "name": "commit",
+          "score": 0.854
+        },
+        {
+          "name": "human",
+          "score": 0.631
+        },
+        {
+          "name": "write-tests",
+          "score": 0.619
+        },
+        {
+          "name": "changelog",
+          "score": 0.583
+        },
+        {
+          "name": "security-review",
+          "score": 0.573
+        },
+        {
+          "name": "code-review",
+          "score": 0.552
+        },
+        {
+          "name": "docker",
+          "score": 0.55
+        },
+        {
+          "name": "translate",
+          "score": 0.544
+        },
+        {
+          "name": "sql",
+          "score": 0.527
+        },
+        {
+          "name": "explain-code",
+          "score": 0.521
+        },
+        {
+          "name": "research",
+          "score": 0.509
+        },
+        {
+          "name": "pdf",
+          "score": 0.495
+        }
+      ]
+    },
+    {
+      "prompt": "Save this work to git.",
+      "expected": "commit",
+      "picked": [],
+      "ms": 6,
+      "scores": [
+        {
+          "name": "commit",
+          "score": 0.727
+        },
+        {
+          "name": "docker",
+          "score": 0.598
+        },
+        {
+          "name": "write-tests",
+          "score": 0.587
+        },
+        {
+          "name": "code-review",
+          "score": 0.57
+        },
+        {
+          "name": "pdf",
+          "score": 0.57
+        },
+        {
+          "name": "human",
+          "score": 0.563
+        },
+        {
+          "name": "changelog",
+          "score": 0.554
+        },
+        {
+          "name": "security-review",
+          "score": 0.549
+        },
+        {
+          "name": "research",
+          "score": 0.548
+        },
+        {
+          "name": "translate",
+          "score": 0.531
+        },
+        {
+          "name": "explain-code",
+          "score": 0.529
+        },
+        {
+          "name": "sql",
+          "score": 0.525
+        }
+      ]
+    },
+    {
+      "prompt": "Extract the tables from invoice.pdf into CSV.",
+      "expected": "pdf",
+      "picked": [],
+      "ms": 8,
+      "scores": [
+        {
+          "name": "pdf",
+          "score": 0.647
+        },
+        {
+          "name": "code-review",
+          "score": 0.552
+        },
+        {
+          "name": "docker",
+          "score": 0.544
+        },
+        {
+          "name": "write-tests",
+          "score": 0.528
+        },
+        {
+          "name": "security-review",
+          "score": 0.523
+        },
+        {
+          "name": "human",
+          "score": 0.522
+        },
+        {
+          "name": "commit",
+          "score": 0.519
+        },
+        {
+          "name": "sql",
+          "score": 0.512
+        },
+        {
+          "name": "research",
+          "score": 0.493
+        },
+        {
+          "name": "explain-code",
+          "score": 0.487
+        },
+        {
+          "name": "changelog",
+          "score": 0.476
+        },
+        {
+          "name": "translate",
+          "score": 0.466
+        }
+      ]
+    },
+    {
+      "prompt": "Merge chapter1.pdf and chapter2.pdf into one file.",
+      "expected": "pdf",
+      "picked": [],
+      "ms": 8,
+      "scores": [
+        {
+          "name": "pdf",
+          "score": 0.637
+        },
+        {
+          "name": "commit",
+          "score": 0.534
+        },
+        {
+          "name": "docker",
+          "score": 0.51
+        },
+        {
+          "name": "changelog",
+          "score": 0.506
+        },
+        {
+          "name": "human",
+          "score": 0.501
+        },
+        {
+          "name": "security-review",
+          "score": 0.498
+        },
+        {
+          "name": "code-review",
+          "score": 0.487
+        },
+        {
+          "name": "write-tests",
+          "score": 0.458
+        },
+        {
+          "name": "research",
+          "score": 0.441
+        },
+        {
+          "name": "translate",
+          "score": 0.439
+        },
+        {
+          "name": "explain-code",
+          "score": 0.421
+        },
+        {
+          "name": "sql",
+          "score": 0.412
+        }
+      ]
+    },
+    {
+      "prompt": "Fill in the form fields in application.pdf with my details.",
+      "expected": "pdf",
+      "picked": [],
+      "ms": 7,
+      "scores": [
+        {
+          "name": "pdf",
+          "score": 0.667
+        },
+        {
+          "name": "write-tests",
+          "score": 0.584
+        },
+        {
+          "name": "human",
+          "score": 0.553
+        },
+        {
+          "name": "commit",
+          "score": 0.549
+        },
+        {
+          "name": "docker",
+          "score": 0.548
+        },
+        {
+          "name": "code-review",
+          "score": 0.537
+        },
+        {
+          "name": "sql",
+          "score": 0.534
+        },
+        {
+          "name": "changelog",
+          "score": 0.526
+        },
+        {
+          "name": "research",
+          "score": 0.522
+        },
+        {
+          "name": "explain-code",
+          "score": 0.504
+        },
+        {
+          "name": "security-review",
+          "score": 0.502
+        },
+        {
+          "name": "translate",
+          "score": 0.46
+        }
+      ]
+    },
+    {
+      "prompt": "Review my latest changes before I open the PR.",
+      "expected": "code-review",
+      "picked": [],
+      "ms": 6,
+      "scores": [
+        {
+          "name": "code-review",
+          "score": 0.653
+        },
+        {
+          "name": "changelog",
+          "score": 0.603
+        },
+        {
+          "name": "security-review",
+          "score": 0.575
+        },
+        {
+          "name": "commit",
+          "score": 0.549
+        },
+        {
+          "name": "human",
+          "score": 0.531
+        },
+        {
+          "name": "write-tests",
+          "score": 0.524
+        },
+        {
+          "name": "research",
+          "score": 0.515
+        },
+        {
+          "name": "pdf",
+          "score": 0.489
+        },
+        {
+          "name": "docker",
+          "score": 0.483
+        },
+        {
+          "name": "sql",
+          "score": 0.445
+        },
+        {
+          "name": "explain-code",
+          "score": 0.42
+        },
+        {
+          "name": "translate",
+          "score": 0.405
+        }
+      ]
+    },
+    {
+      "prompt": "Can you look over this diff and tell me if anything is risky?",
+      "expected": "code-review",
+      "picked": [],
+      "ms": 7,
+      "scores": [
+        {
+          "name": "security-review",
+          "score": 0.55
+        },
+        {
+          "name": "code-review",
+          "score": 0.541
+        },
+        {
+          "name": "write-tests",
+          "score": 0.467
+        },
+        {
+          "name": "commit",
+          "score": 0.459
+        },
+        {
+          "name": "research",
+          "score": 0.457
+        },
+        {
+          "name": "human",
+          "score": 0.446
+        },
+        {
+          "name": "pdf",
+          "score": 0.442
+        },
+        {
+          "name": "docker",
+          "score": 0.431
+        },
+        {
+          "name": "sql",
+          "score": 0.416
+        },
+        {
+          "name": "changelog",
+          "score": 0.404
+        },
+        {
+          "name": "explain-code",
+          "score": 0.398
+        },
+        {
+          "name": "translate",
+          "score": 0.375
+        }
+      ]
+    },
+    {
+      "prompt": "Check PR 42 for bugs.",
+      "expected": "code-review",
+      "picked": [],
+      "ms": 6,
+      "scores": [
+        {
+          "name": "code-review",
+          "score": 0.611
+        },
+        {
+          "name": "security-review",
+          "score": 0.584
+        },
+        {
+          "name": "write-tests",
+          "score": 0.559
+        },
+        {
+          "name": "human",
+          "score": 0.514
+        },
+        {
+          "name": "research",
+          "score": 0.494
+        },
+        {
+          "name": "commit",
+          "score": 0.489
+        },
+        {
+          "name": "changelog",
+          "score": 0.487
+        },
+        {
+          "name": "pdf",
+          "score": 0.487
+        },
+        {
+          "name": "docker",
+          "score": 0.479
+        },
+        {
+          "name": "explain-code",
+          "score": 0.455
+        },
+        {
+          "name": "sql",
+          "score": 0.415
+        },
+        {
+          "name": "translate",
+          "score": 0.402
+        }
+      ]
+    },
+    {
+      "prompt": "Add unit tests for the parseArgs function.",
+      "expected": "write-tests",
+      "picked": [],
+      "ms": 7,
+      "scores": [
+        {
+          "name": "write-tests",
+          "score": 0.681
+        },
+        {
+          "name": "security-review",
+          "score": 0.583
+        },
+        {
+          "name": "code-review",
+          "score": 0.577
+        },
+        {
+          "name": "pdf",
+          "score": 0.54
+        },
+        {
+          "name": "human",
+          "score": 0.537
+        },
+        {
+          "name": "commit",
+          "score": 0.527
+        },
+        {
+          "name": "sql",
+          "score": 0.523
+        },
+        {
+          "name": "docker",
+          "score": 0.517
+        },
+        {
+          "name": "research",
+          "score": 0.509
+        },
+        {
+          "name": "explain-code",
+          "score": 0.507
+        },
+        {
+          "name": "translate",
+          "score": 0.485
+        },
+        {
+          "name": "changelog",
+          "score": 0.471
+        }
+      ]
+    },
+    {
+      "prompt": "Our coverage on utils.ts is low, write tests for it.",
+      "expected": "write-tests",
+      "picked": [],
+      "ms": 7,
+      "scores": [
+        {
+          "name": "write-tests",
+          "score": 0.669
+        },
+        {
+          "name": "code-review",
+          "score": 0.59
+        },
+        {
+          "name": "security-review",
+          "score": 0.559
+        },
+        {
+          "name": "human",
+          "score": 0.546
+        },
+        {
+          "name": "research",
+          "score": 0.535
+        },
+        {
+          "name": "commit",
+          "score": 0.533
+        },
+        {
+          "name": "pdf",
+          "score": 0.52
+        },
+        {
+          "name": "sql",
+          "score": 0.501
+        },
+        {
+          "name": "docker",
+          "score": 0.499
+        },
+        {
+          "name": "explain-code",
+          "score": 0.49
+        },
+        {
+          "name": "translate",
+          "score": 0.488
+        },
+        {
+          "name": "changelog",
+          "score": 0.469
+        }
+      ]
+    },
+    {
+      "prompt": "Write a regression test for the bug we just fixed.",
+      "expected": "write-tests",
+      "picked": [],
+      "ms": 7,
+      "scores": [
+        {
+          "name": "write-tests",
+          "score": 0.704
+        },
+        {
+          "name": "code-review",
+          "score": 0.648
+        },
+        {
+          "name": "human",
+          "score": 0.619
+        },
+        {
+          "name": "docker",
+          "score": 0.608
+        },
+        {
+          "name": "security-review",
+          "score": 0.606
+        },
+        {
+          "name": "commit",
+          "score": 0.586
+        },
+        {
+          "name": "sql",
+          "score": 0.574
+        },
+        {
+          "name": "research",
+          "score": 0.572
+        },
+        {
+          "name": "pdf",
+          "score": 0.57
+        },
+        {
+          "name": "changelog",
+          "score": 0.551
+        },
+        {
+          "name": "explain-code",
+          "score": 0.533
+        },
+        {
+          "name": "translate",
+          "score": 0.523
+        }
+      ]
+    },
+    {
+      "prompt": "How does the session replay in session.ts work?",
+      "expected": "explain-code",
+      "picked": [],
+      "ms": 8,
+      "scores": [
+        {
+          "name": "commit",
+          "score": 0.533
+        },
+        {
+          "name": "security-review",
+          "score": 0.524
+        },
+        {
+          "name": "code-review",
+          "score": 0.501
+        },
+        {
+          "name": "human",
+          "score": 0.486
+        },
+        {
+          "name": "write-tests",
+          "score": 0.485
+        },
+        {
+          "name": "pdf",
+          "score": 0.48
+        },
+        {
+          "name": "sql",
+          "score": 0.463
+        },
+        {
+          "name": "docker",
+          "score": 0.461
+        },
+        {
+          "name": "explain-code",
+          "score": 0.457
+        },
+        {
+          "name": "changelog",
+          "score": 0.444
+        },
+        {
+          "name": "translate",
+          "score": 0.436
+        },
+        {
+          "name": "research",
+          "score": 0.417
+        }
+      ]
+    },
+    {
+      "prompt": "Walk me through what this function does, I'm new to the codebase.",
+      "expected": "explain-code",
+      "picked": [],
+      "ms": 8,
+      "scores": [
+        {
+          "name": "explain-code",
+          "score": 0.749
+        },
+        {
+          "name": "code-review",
+          "score": 0.638
+        },
+        {
+          "name": "write-tests",
+          "score": 0.638
+        },
+        {
+          "name": "security-review",
+          "score": 0.6
+        },
+        {
+          "name": "sql",
+          "score": 0.595
+        },
+        {
+          "name": "commit",
+          "score": 0.592
+        },
+        {
+          "name": "docker",
+          "score": 0.59
+        },
+        {
+          "name": "pdf",
+          "score": 0.563
+        },
+        {
+          "name": "research",
+          "score": 0.546
+        },
+        {
+          "name": "human",
+          "score": 0.531
+        },
+        {
+          "name": "translate",
+          "score": 0.53
+        },
+        {
+          "name": "changelog",
+          "score": 0.521
+        }
+      ]
+    },
+    {
+      "prompt": "Explain the agent loop to me.",
+      "expected": "explain-code",
+      "picked": [],
+      "ms": 6,
+      "scores": [
+        {
+          "name": "explain-code",
+          "score": 0.586
+        },
+        {
+          "name": "security-review",
+          "score": 0.584
+        },
+        {
+          "name": "human",
+          "score": 0.568
+        },
+        {
+          "name": "sql",
+          "score": 0.558
+        },
+        {
+          "name": "code-review",
+          "score": 0.556
+        },
+        {
+          "name": "commit",
+          "score": 0.551
+        },
+        {
+          "name": "research",
+          "score": 0.523
+        },
+        {
+          "name": "write-tests",
+          "score": 0.52
+        },
+        {
+          "name": "changelog",
+          "score": 0.507
+        },
+        {
+          "name": "docker",
+          "score": 0.49
+        },
+        {
+          "name": "pdf",
+          "score": 0.487
+        },
+        {
+          "name": "translate",
+          "score": 0.439
+        }
+      ]
+    },
+    {
+      "prompt": "This query is slow: SELECT * FROM orders WHERE user_id = 5. How do I speed it up?",
+      "expected": "sql",
+      "picked": [],
+      "ms": 7,
+      "scores": [
+        {
+          "name": "sql",
+          "score": 0.589
+        },
+        {
+          "name": "code-review",
+          "score": 0.514
+        },
+        {
+          "name": "write-tests",
+          "score": 0.48
+        },
+        {
+          "name": "security-review",
+          "score": 0.472
+        },
+        {
+          "name": "human",
+          "score": 0.468
+        },
+        {
+          "name": "docker",
+          "score": 0.461
+        },
+        {
+          "name": "pdf",
+          "score": 0.44
+        },
+        {
+          "name": "commit",
+          "score": 0.425
+        },
+        {
+          "name": "research",
+          "score": 0.416
+        },
+        {
+          "name": "explain-code",
+          "score": 0.411
+        },
+        {
+          "name": "changelog",
+          "score": 0.395
+        },
+        {
+          "name": "translate",
+          "score": 0.375
+        }
+      ]
+    },
+    {
+      "prompt": "Write a query that returns the top 10 customers by revenue last month.",
+      "expected": "sql",
+      "picked": [],
+      "ms": 7,
+      "scores": [
+        {
+          "name": "sql",
+          "score": 0.623
+        },
+        {
+          "name": "research",
+          "score": 0.622
+        },
+        {
+          "name": "code-review",
+          "score": 0.607
+        },
+        {
+          "name": "write-tests",
+          "score": 0.603
+        },
+        {
+          "name": "human",
+          "score": 0.563
+        },
+        {
+          "name": "security-review",
+          "score": 0.558
+        },
+        {
+          "name": "commit",
+          "score": 0.548
+        },
+        {
+          "name": "pdf",
+          "score": 0.546
+        },
+        {
+          "name": "docker",
+          "score": 0.527
+        },
+        {
+          "name": "changelog",
+          "score": 0.521
+        },
+        {
+          "name": "explain-code",
+          "score": 0.515
+        },
+        {
+          "name": "translate",
+          "score": 0.494
+        }
+      ]
+    },
+    {
+      "prompt": "Design a schema for users, teams and memberships.",
+      "expected": "sql",
+      "picked": [],
+      "ms": 8,
+      "scores": [
+        {
+          "name": "sql",
+          "score": 0.705
+        },
+        {
+          "name": "commit",
+          "score": 0.641
+        },
+        {
+          "name": "write-tests",
+          "score": 0.603
+        },
+        {
+          "name": "code-review",
+          "score": 0.586
+        },
+        {
+          "name": "human",
+          "score": 0.586
+        },
+        {
+          "name": "research",
+          "score": 0.586
+        },
+        {
+          "name": "explain-code",
+          "score": 0.578
+        },
+        {
+          "name": "pdf",
+          "score": 0.578
+        },
+        {
+          "name": "security-review",
+          "score": 0.578
+        },
+        {
+          "name": "docker",
+          "score": 0.577
+        },
+        {
+          "name": "changelog",
+          "score": 0.565
+        },
+        {
+          "name": "translate",
+          "score": 0.506
+        }
+      ]
+    },
+    {
+      "prompt": "My docker build fails at npm install, fix the Dockerfile.",
+      "expected": "docker",
+      "picked": [],
+      "ms": 7,
+      "scores": [
+        {
+          "name": "docker",
+          "score": 0.75
+        },
+        {
+          "name": "commit",
+          "score": 0.549
+        },
+        {
+          "name": "changelog",
+          "score": 0.501
+        },
+        {
+          "name": "write-tests",
+          "score": 0.5
+        },
+        {
+          "name": "code-review",
+          "score": 0.488
+        },
+        {
+          "name": "pdf",
+          "score": 0.474
+        },
+        {
+          "name": "sql",
+          "score": 0.471
+        },
+        {
+          "name": "security-review",
+          "score": 0.468
+        },
+        {
+          "name": "human",
+          "score": 0.459
+        },
+        {
+          "name": "explain-code",
+          "score": 0.438
+        },
+        {
+          "name": "research",
+          "score": 0.427
+        },
+        {
+          "name": "translate",
+          "score": 0.4
+        }
+      ]
+    },
+    {
+      "prompt": "Write a docker-compose file with postgres and the api.",
+      "expected": "docker",
+      "picked": [],
+      "ms": 7,
+      "scores": [
+        {
+          "name": "docker",
+          "score": 0.76
+        },
+        {
+          "name": "commit",
+          "score": 0.65
+        },
+        {
+          "name": "write-tests",
+          "score": 0.595
+        },
+        {
+          "name": "human",
+          "score": 0.535
+        },
+        {
+          "name": "sql",
+          "score": 0.535
+        },
+        {
+          "name": "code-review",
+          "score": 0.52
+        },
+        {
+          "name": "pdf",
+          "score": 0.506
+        },
+        {
+          "name": "security-review",
+          "score": 0.504
+        },
+        {
+          "name": "changelog",
+          "score": 0.5
+        },
+        {
+          "name": "explain-code",
+          "score": 0.491
+        },
+        {
+          "name": "research",
+          "score": 0.465
+        },
+        {
+          "name": "translate",
+          "score": 0.439
+        }
+      ]
+    },
+    {
+      "prompt": "Make the container image smaller.",
+      "expected": "docker",
+      "picked": [],
+      "ms": 6,
+      "scores": [
+        {
+          "name": "docker",
+          "score": 0.653
+        },
+        {
+          "name": "commit",
+          "score": 0.546
+        },
+        {
+          "name": "write-tests",
+          "score": 0.517
+        },
+        {
+          "name": "code-review",
+          "score": 0.515
+        },
+        {
+          "name": "pdf",
+          "score": 0.511
+        },
+        {
+          "name": "changelog",
+          "score": 0.486
+        },
+        {
+          "name": "human",
+          "score": 0.486
+        },
+        {
+          "name": "translate",
+          "score": 0.484
+        },
+        {
+          "name": "security-review",
+          "score": 0.482
+        },
+        {
+          "name": "sql",
+          "score": 0.471
+        },
+        {
+          "name": "explain-code",
+          "score": 0.466
+        },
+        {
+          "name": "research",
+          "score": 0.45
+        }
+      ]
+    },
+    {
+      "prompt": "Translate this error message into Spanish and German.",
+      "expected": "translate",
+      "picked": [],
+      "ms": 6,
+      "scores": [
+        {
+          "name": "translate",
+          "score": 0.649
+        },
+        {
+          "name": "commit",
+          "score": 0.577
+        },
+        {
+          "name": "human",
+          "score": 0.572
+        },
+        {
+          "name": "security-review",
+          "score": 0.562
+        },
+        {
+          "name": "code-review",
+          "score": 0.554
+        },
+        {
+          "name": "docker",
+          "score": 0.554
+        },
+        {
+          "name": "pdf",
+          "score": 0.541
+        },
+        {
+          "name": "changelog",
+          "score": 0.524
+        },
+        {
+          "name": "write-tests",
+          "score": 0.518
+        },
+        {
+          "name": "sql",
+          "score": 0.51
+        },
+        {
+          "name": "explain-code",
+          "score": 0.506
+        },
+        {
+          "name": "research",
+          "score": 0.497
+        }
+      ]
+    },
+    {
+      "prompt": "Localise the onboarding strings to French.",
+      "expected": "translate",
+      "picked": [],
+      "ms": 6,
+      "scores": [
+        {
+          "name": "translate",
+          "score": 0.629
+        },
+        {
+          "name": "human",
+          "score": 0.599
+        },
+        {
+          "name": "security-review",
+          "score": 0.578
+        },
+        {
+          "name": "sql",
+          "score": 0.563
+        },
+        {
+          "name": "docker",
+          "score": 0.556
+        },
+        {
+          "name": "commit",
+          "score": 0.554
+        },
+        {
+          "name": "code-review",
+          "score": 0.529
+        },
+        {
+          "name": "write-tests",
+          "score": 0.521
+        },
+        {
+          "name": "explain-code",
+          "score": 0.509
+        },
+        {
+          "name": "pdf",
+          "score": 0.506
+        },
+        {
+          "name": "changelog",
+          "score": 0.486
+        },
+        {
+          "name": "research",
+          "score": 0.454
+        }
+      ]
+    },
+    {
+      "prompt": "Put this paragraph into Japanese, keep it formal.",
+      "expected": "translate",
+      "picked": [],
+      "ms": 8,
+      "scores": [
+        {
+          "name": "human",
+          "score": 0.643
+        },
+        {
+          "name": "commit",
+          "score": 0.613
+        },
+        {
+          "name": "translate",
+          "score": 0.604
+        },
+        {
+          "name": "write-tests",
+          "score": 0.545
+        },
+        {
+          "name": "pdf",
+          "score": 0.542
+        },
+        {
+          "name": "changelog",
+          "score": 0.538
+        },
+        {
+          "name": "code-review",
+          "score": 0.532
+        },
+        {
+          "name": "security-review",
+          "score": 0.532
+        },
+        {
+          "name": "research",
+          "score": 0.53
+        },
+        {
+          "name": "docker",
+          "score": 0.528
+        },
+        {
+          "name": "explain-code",
+          "score": 0.499
+        },
+        {
+          "name": "sql",
+          "score": 0.492
+        }
+      ]
+    },
+    {
+      "prompt": "Draft release notes for v0.3 from the recent commits.",
+      "expected": "changelog",
+      "picked": [],
+      "ms": 8,
+      "scores": [
+        {
+          "name": "changelog",
+          "score": 0.696
+        },
+        {
+          "name": "commit",
+          "score": 0.631
+        },
+        {
+          "name": "write-tests",
+          "score": 0.539
+        },
+        {
+          "name": "code-review",
+          "score": 0.533
+        },
+        {
+          "name": "security-review",
+          "score": 0.532
+        },
+        {
+          "name": "docker",
+          "score": 0.522
+        },
+        {
+          "name": "human",
+          "score": 0.522
+        },
+        {
+          "name": "pdf",
+          "score": 0.498
+        },
+        {
+          "name": "explain-code",
+          "score": 0.467
+        },
+        {
+          "name": "research",
+          "score": 0.458
+        },
+        {
+          "name": "translate",
+          "score": 0.444
+        },
+        {
+          "name": "sql",
+          "score": 0.442
+        }
+      ]
+    },
+    {
+      "prompt": "Write the CHANGELOG entry for this release.",
+      "expected": "changelog",
+      "picked": [],
+      "ms": 6,
+      "scores": [
+        {
+          "name": "changelog",
+          "score": 0.824
+        },
+        {
+          "name": "commit",
+          "score": 0.679
+        },
+        {
+          "name": "code-review",
+          "score": 0.611
+        },
+        {
+          "name": "human",
+          "score": 0.608
+        },
+        {
+          "name": "docker",
+          "score": 0.607
+        },
+        {
+          "name": "write-tests",
+          "score": 0.6
+        },
+        {
+          "name": "security-review",
+          "score": 0.562
+        },
+        {
+          "name": "pdf",
+          "score": 0.548
+        },
+        {
+          "name": "research",
+          "score": 0.535
+        },
+        {
+          "name": "sql",
+          "score": 0.533
+        },
+        {
+          "name": "explain-code",
+          "score": 0.52
+        },
+        {
+          "name": "translate",
+          "score": 0.513
+        }
+      ]
+    },
+    {
+      "prompt": "Summarise what changed since the last tag for our users.",
+      "expected": "changelog",
+      "picked": [],
+      "ms": 8,
+      "scores": [
+        {
+          "name": "changelog",
+          "score": 0.665
+        },
+        {
+          "name": "human",
+          "score": 0.58
+        },
+        {
+          "name": "code-review",
+          "score": 0.579
+        },
+        {
+          "name": "commit",
+          "score": 0.569
+        },
+        {
+          "name": "explain-code",
+          "score": 0.564
+        },
+        {
+          "name": "pdf",
+          "score": 0.543
+        },
+        {
+          "name": "security-review",
+          "score": 0.538
+        },
+        {
+          "name": "write-tests",
+          "score": 0.538
+        },
+        {
+          "name": "sql",
+          "score": 0.533
+        },
+        {
+          "name": "docker",
+          "score": 0.53
+        },
+        {
+          "name": "translate",
+          "score": 0.524
+        },
+        {
+          "name": "research",
+          "score": 0.515
+        }
+      ]
+    },
+    {
+      "prompt": "Is there any SQL injection risk in the login handler?",
+      "expected": "security-review",
+      "picked": [],
+      "ms": 8,
+      "scores": [
+        {
+          "name": "security-review",
+          "score": 0.628
+        },
+        {
+          "name": "sql",
+          "score": 0.57
+        },
+        {
+          "name": "code-review",
+          "score": 0.497
+        },
+        {
+          "name": "write-tests",
+          "score": 0.495
+        },
+        {
+          "name": "commit",
+          "score": 0.492
+        },
+        {
+          "name": "human",
+          "score": 0.472
+        },
+        {
+          "name": "docker",
+          "score": 0.454
+        },
+        {
+          "name": "explain-code",
+          "score": 0.435
+        },
+        {
+          "name": "changelog",
+          "score": 0.428
+        },
+        {
+          "name": "research",
+          "score": 0.398
+        },
+        {
+          "name": "pdf",
+          "score": 0.387
+        },
+        {
+          "name": "translate",
+          "score": 0.373
+        }
+      ]
+    },
+    {
+      "prompt": "Audit this repo for hard-coded secrets.",
+      "expected": "security-review",
+      "picked": [],
+      "ms": 6,
+      "scores": [
+        {
+          "name": "security-review",
+          "score": 0.736
+        },
+        {
+          "name": "code-review",
+          "score": 0.621
+        },
+        {
+          "name": "commit",
+          "score": 0.585
+        },
+        {
+          "name": "human",
+          "score": 0.574
+        },
+        {
+          "name": "write-tests",
+          "score": 0.563
+        },
+        {
+          "name": "changelog",
+          "score": 0.541
+        },
+        {
+          "name": "explain-code",
+          "score": 0.527
+        },
+        {
+          "name": "pdf",
+          "score": 0.525
+        },
+        {
+          "name": "research",
+          "score": 0.505
+        },
+        {
+          "name": "sql",
+          "score": 0.504
+        },
+        {
+          "name": "docker",
+          "score": 0.492
+        },
+        {
+          "name": "translate",
+          "score": 0.441
+        }
+      ]
+    },
+    {
+      "prompt": "Check the auth middleware for security holes.",
+      "expected": "security-review",
+      "picked": [],
+      "ms": 6,
+      "scores": [
+        {
+          "name": "security-review",
+          "score": 0.699
+        },
+        {
+          "name": "code-review",
+          "score": 0.577
+        },
+        {
+          "name": "write-tests",
+          "score": 0.57
+        },
+        {
+          "name": "commit",
+          "score": 0.566
+        },
+        {
+          "name": "explain-code",
+          "score": 0.53
+        },
+        {
+          "name": "human",
+          "score": 0.526
+        },
+        {
+          "name": "sql",
+          "score": 0.518
+        },
+        {
+          "name": "docker",
+          "score": 0.515
+        },
+        {
+          "name": "changelog",
+          "score": 0.498
+        },
+        {
+          "name": "research",
+          "score": 0.496
+        },
+        {
+          "name": "pdf",
+          "score": 0.478
+        },
+        {
+          "name": "translate",
+          "score": 0.435
+        }
+      ]
+    },
+    {
+      "prompt": "Fix the off-by-one error in sum.js.",
+      "expected": null,
+      "picked": [],
+      "ms": 8,
+      "scores": [
+        {
+          "name": "code-review",
+          "score": 0.519
+        },
+        {
+          "name": "docker",
+          "score": 0.516
+        },
+        {
+          "name": "security-review",
+          "score": 0.515
+        },
+        {
+          "name": "write-tests",
+          "score": 0.496
+        },
+        {
+          "name": "commit",
+          "score": 0.491
+        },
+        {
+          "name": "explain-code",
+          "score": 0.49
+        },
+        {
+          "name": "human",
+          "score": 0.489
+        },
+        {
+          "name": "sql",
+          "score": 0.484
+        },
+        {
+          "name": "pdf",
+          "score": 0.476
+        },
+        {
+          "name": "changelog",
+          "score": 0.463
+        },
+        {
+          "name": "translate",
+          "score": 0.436
+        },
+        {
+          "name": "research",
+          "score": 0.435
+        }
+      ]
+    },
+    {
+      "prompt": "Rename the variable tmp to total in cart.ts.",
+      "expected": null,
+      "picked": [],
+      "ms": 8,
+      "scores": [
+        {
+          "name": "commit",
+          "score": 0.555
+        },
+        {
+          "name": "code-review",
+          "score": 0.526
+        },
+        {
+          "name": "write-tests",
+          "score": 0.516
+        },
+        {
+          "name": "changelog",
+          "score": 0.509
+        },
+        {
+          "name": "human",
+          "score": 0.499
+        },
+        {
+          "name": "pdf",
+          "score": 0.487
+        },
+        {
+          "name": "docker",
+          "score": 0.479
+        },
+        {
+          "name": "translate",
+          "score": 0.474
+        },
+        {
+          "name": "security-review",
+          "score": 0.471
+        },
+        {
+          "name": "sql",
+          "score": 0.467
+        },
+        {
+          "name": "research",
+          "score": 0.451
+        },
+        {
+          "name": "explain-code",
+          "score": 0.442
+        }
+      ]
+    },
+    {
+      "prompt": "Run the tests and tell me what fails.",
+      "expected": null,
+      "picked": [],
+      "ms": 6,
+      "scores": [
+        {
+          "name": "write-tests",
+          "score": 0.718
+        },
+        {
+          "name": "code-review",
+          "score": 0.666
+        },
+        {
+          "name": "security-review",
+          "score": 0.62
+        },
+        {
+          "name": "research",
+          "score": 0.615
+        },
+        {
+          "name": "commit",
+          "score": 0.604
+        },
+        {
+          "name": "docker",
+          "score": 0.6
+        },
+        {
+          "name": "sql",
+          "score": 0.589
+        },
+        {
+          "name": "explain-code",
+          "score": 0.588
+        },
+        {
+          "name": "human",
+          "score": 0.583
+        },
+        {
+          "name": "pdf",
+          "score": 0.57
+        },
+        {
+          "name": "translate",
+          "score": 0.525
+        },
+        {
+          "name": "changelog",
+          "score": 0.513
+        }
+      ]
+    },
+    {
+      "prompt": "What's the difference between let and const?",
+      "expected": null,
+      "picked": [],
+      "ms": 9,
+      "scores": [
+        {
+          "name": "commit",
+          "score": 0.578
+        },
+        {
+          "name": "explain-code",
+          "score": 0.569
+        },
+        {
+          "name": "human",
+          "score": 0.564
+        },
+        {
+          "name": "code-review",
+          "score": 0.544
+        },
+        {
+          "name": "pdf",
+          "score": 0.539
+        },
+        {
+          "name": "write-tests",
+          "score": 0.527
+        },
+        {
+          "name": "changelog",
+          "score": 0.512
+        },
+        {
+          "name": "translate",
+          "score": 0.504
+        },
+        {
+          "name": "security-review",
+          "score": 0.498
+        },
+        {
+          "name": "research",
+          "score": 0.484
+        },
+        {
+          "name": "sql",
+          "score": 0.484
+        },
+        {
+          "name": "docker",
+          "score": 0.481
+        }
+      ]
+    },
+    {
+      "prompt": "Add a --verbose flag to the CLI.",
+      "expected": null,
+      "picked": [],
+      "ms": 9,
+      "scores": [
+        {
+          "name": "commit",
+          "score": 0.579
+        },
+        {
+          "name": "security-review",
+          "score": 0.569
+        },
+        {
+          "name": "code-review",
+          "score": 0.552
+        },
+        {
+          "name": "human",
+          "score": 0.552
+        },
+        {
+          "name": "write-tests",
+          "score": 0.55
+        },
+        {
+          "name": "docker",
+          "score": 0.539
+        },
+        {
+          "name": "explain-code",
+          "score": 0.523
+        },
+        {
+          "name": "changelog",
+          "score": 0.521
+        },
+        {
+          "name": "pdf",
+          "score": 0.49
+        },
+        {
+          "name": "translate",
+          "score": 0.476
+        },
+        {
+          "name": "sql",
+          "score": 0.474
+        },
+        {
+          "name": "research",
+          "score": 0.43
+        }
+      ]
+    },
+    {
+      "prompt": "Delete the unused imports in index.ts.",
+      "expected": null,
+      "picked": [],
+      "ms": 7,
+      "scores": [
+        {
+          "name": "security-review",
+          "score": 0.511
+        },
+        {
+          "name": "code-review",
+          "score": 0.509
+        },
+        {
+          "name": "write-tests",
+          "score": 0.485
+        },
+        {
+          "name": "commit",
+          "score": 0.482
+        },
+        {
+          "name": "pdf",
+          "score": 0.478
+        },
+        {
+          "name": "sql",
+          "score": 0.474
+        },
+        {
+          "name": "docker",
+          "score": 0.468
+        },
+        {
+          "name": "translate",
+          "score": 0.459
+        },
+        {
+          "name": "human",
+          "score": 0.454
+        },
+        {
+          "name": "changelog",
+          "score": 0.443
+        },
+        {
+          "name": "research",
+          "score": 0.441
+        },
+        {
+          "name": "explain-code",
+          "score": 0.408
+        }
+      ]
+    },
+    {
+      "prompt": "Why is my build failing with 'cannot find module'?",
+      "expected": null,
+      "picked": [],
+      "ms": 9,
+      "scores": [
+        {
+          "name": "docker",
+          "score": 0.531
+        },
+        {
+          "name": "write-tests",
+          "score": 0.481
+        },
+        {
+          "name": "commit",
+          "score": 0.454
+        },
+        {
+          "name": "security-review",
+          "score": 0.453
+        },
+        {
+          "name": "code-review",
+          "score": 0.449
+        },
+        {
+          "name": "explain-code",
+          "score": 0.419
+        },
+        {
+          "name": "sql",
+          "score": 0.414
+        },
+        {
+          "name": "changelog",
+          "score": 0.411
+        },
+        {
+          "name": "human",
+          "score": 0.399
+        },
+        {
+          "name": "research",
+          "score": 0.399
+        },
+        {
+          "name": "pdf",
+          "score": 0.371
+        },
+        {
+          "name": "translate",
+          "score": 0.348
+        }
+      ]
+    },
+    {
+      "prompt": "Move the helper functions into a utils folder.",
+      "expected": null,
+      "picked": [],
+      "ms": 10,
+      "scores": [
+        {
+          "name": "docker",
+          "score": 0.598
+        },
+        {
+          "name": "pdf",
+          "score": 0.567
+        },
+        {
+          "name": "commit",
+          "score": 0.558
+        },
+        {
+          "name": "write-tests",
+          "score": 0.547
+        },
+        {
+          "name": "code-review",
+          "score": 0.54
+        },
+        {
+          "name": "changelog",
+          "score": 0.519
+        },
+        {
+          "name": "security-review",
+          "score": 0.519
+        },
+        {
+          "name": "sql",
+          "score": 0.515
+        },
+        {
+          "name": "human",
+          "score": 0.512
+        },
+        {
+          "name": "explain-code",
+          "score": 0.508
+        },
+        {
+          "name": "translate",
+          "score": 0.49
+        },
+        {
+          "name": "research",
+          "score": 0.461
+        }
+      ]
+    },
+    {
+      "prompt": "Bump the version number to 1.2.0 in package.json.",
+      "expected": null,
+      "picked": [],
+      "ms": 9,
+      "scores": [
+        {
+          "name": "code-review",
+          "score": 0.559
+        },
+        {
+          "name": "commit",
+          "score": 0.546
+        },
+        {
+          "name": "changelog",
+          "score": 0.537
+        },
+        {
+          "name": "docker",
+          "score": 0.535
+        },
+        {
+          "name": "security-review",
+          "score": 0.528
+        },
+        {
+          "name": "human",
+          "score": 0.508
+        },
+        {
+          "name": "write-tests",
+          "score": 0.492
+        },
+        {
+          "name": "explain-code",
+          "score": 0.48
+        },
+        {
+          "name": "pdf",
+          "score": 0.457
+        },
+        {
+          "name": "translate",
+          "score": 0.445
+        },
+        {
+          "name": "sql",
+          "score": 0.404
+        },
+        {
+          "name": "research",
+          "score": 0.403
+        }
+      ]
+    },
+    {
+      "prompt": "Make the button blue.",
+      "expected": null,
+      "picked": [],
+      "ms": 7,
+      "scores": [
+        {
+          "name": "docker",
+          "score": 0.553
+        },
+        {
+          "name": "commit",
+          "score": 0.54
+        },
+        {
+          "name": "human",
+          "score": 0.53
+        },
+        {
+          "name": "code-review",
+          "score": 0.509
+        },
+        {
+          "name": "write-tests",
+          "score": 0.485
+        },
+        {
+          "name": "changelog",
+          "score": 0.482
+        },
+        {
+          "name": "translate",
+          "score": 0.472
+        },
+        {
+          "name": "security-review",
+          "score": 0.456
+        },
+        {
+          "name": "research",
+          "score": 0.452
+        },
+        {
+          "name": "pdf",
+          "score": 0.45
+        },
+        {
+          "name": "explain-code",
+          "score": 0.449
+        },
+        {
+          "name": "sql",
+          "score": 0.43
+        }
+      ]
+    }
+  ]
+}

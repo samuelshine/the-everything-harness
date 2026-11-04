@@ -18,4 +18,6 @@ export interface Provider {
   listModels(): Promise<ModelInfo[]>;
   probe(model: string): Promise<ProbeResult>;
   stream(req: ModelRequest, signal?: AbortSignal): AsyncIterable<StreamEvent>;
+  // Text embeddings, for providers that offer them (used by the skill router, ADR-0015).
+  embed?(model: string, inputs: string[]): Promise<number[][]>;
 }

@@ -10,6 +10,7 @@ export * from "./providers";
 export * from "./providers/fake";
 export * from "./providers/ollama";
 export type * from "./providers/provider";
+export * from "./router";
 export * from "./session";
 export * from "./skills";
 export * from "./tools";
