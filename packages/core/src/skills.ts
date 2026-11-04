@@ -3,6 +3,7 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
+import { splitRuleList } from "./permissions";
 
 export type SkillSource = "user" | "project";
 
@@ -23,7 +24,8 @@ export type Skill = {
   userInvocable: boolean;
   // A model role (ADR-0014) the skill asks for; not acted on until roles exist.
   model?: string;
-  // Parsed for display only; not a grant until ADR-0003.
+  // Permission rules granted while the skill is loaded (ADR-0003). Project skills grant
+  // nothing until the folder is trusted.
   allowedTools?: string[];
 };
 
@@ -101,7 +103,7 @@ function parseFile(
   const allowedTools = Array.isArray(allowed)
     ? allowed.map(String)
     : typeof allowed === "string"
-      ? allowed.split(/[,\s]+/).filter(Boolean)
+      ? splitRuleList(allowed)
       : undefined;
   return {
     name,

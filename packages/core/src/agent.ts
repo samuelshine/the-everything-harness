@@ -3,7 +3,7 @@
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { findProjectRoot, loadInstructions, renderInstructions } from "./instructions";
-import { decide, type PermissionConfig } from "./permissions";
+import { decide, type PermissionConfig, parseRules, type Rule } from "./permissions";
 import { systemPrompt } from "./prompt";
 import type { Provider } from "./providers/provider";
 import { type RouteResult, routerHint } from "./router";
@@ -18,7 +18,16 @@ export type AgentEvent =
   | { type: "text_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
   | { type: "tool_call"; id: string; name: string; args: unknown; summary?: string }
-  | { type: "approval"; id: string; name: string; summary: string; behavior: "allow" | "deny"; reason: string }
+  | {
+      type: "approval";
+      id: string;
+      name: string;
+      summary: string;
+      behavior: "allow" | "deny";
+      reason: string;
+      // A rule that would allow this action next time, when it was denied.
+      suggestion?: string;
+    }
   | { type: "tool_result"; id: string; name: string; content: string; isError: boolean }
   | { type: "checkpoint"; sha: string; title: string }
   | { type: "warning"; message: string }
@@ -92,6 +101,14 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   };
   const byName = new Map(tools.map((t) => [t.spec.name, t]));
   const log = opts.session;
+  // A loaded skill's allowed-tools act as extra allow rules for the rest of the run (ADR-0003).
+  // The CLI strips them from project skills in folders the user has not trusted.
+  const permissions = (): PermissionConfig => {
+    const grants: Rule[] = (opts.skills ?? [])
+      .filter((s) => loadedSkills.has(s.name) && s.allowedTools?.length)
+      .flatMap((s) => parseRules(s.allowedTools ?? [], `skill ${s.name}`));
+    return { projectRoot, ...opts.permissions, allow: [...opts.permissions.allow, ...grants] };
+  };
   // Per turn: the conversation before the turn, the checkpoint taken (if any) and what changed.
   const step = { conversationAt: null as string | null, tried: false, sha: "", changes: [] as string[] };
   let firstCheckpoint = true;
@@ -178,7 +195,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     }
 
     for (const call of calls) {
-      const { changed, ...outcome } = await runTool(call, byName, opts, ctx, emit, beforeChange);
+      const { changed, ...outcome } = await runTool(call, byName, opts, permissions(), ctx, emit, beforeChange);
       if (changed) step.changes.push(changed);
       const item: Item = { kind: "tool_result", callId: call.id, name: call.name, ...outcome };
       items.push(item);
@@ -197,6 +214,7 @@ async function runTool(
   call: { id: string; name: string; args: unknown },
   byName: Map<string, Tool>,
   opts: AgentOptions,
+  permissions: PermissionConfig,
   ctx: ToolContext,
   emit: (e: AgentEvent) => void,
   beforeChange: (summary: string) => Promise<void>,
@@ -226,7 +244,7 @@ async function runTool(
   emit({ type: "tool_call", ...call, summary: access.summary });
   log?.append("tool_call", { id: call.id, name: call.name, args: call.args, summary: access.summary });
 
-  const decision = decide(call.name, access, opts.permissions, ctx);
+  const decision = decide(call.name, access, permissions, ctx);
   let behavior: "allow" | "deny" = decision.behavior === "ask" ? "deny" : decision.behavior;
   let reason = decision.reason;
   if (decision.behavior === "ask") {
@@ -235,9 +253,25 @@ async function runTool(
     reason = approved ? `approved by user (${decision.reason})` : `${decision.reason} needs approval`;
   }
   // Every decision is logged; auto-allowed reads are frequent, so only non-read decisions are emitted.
-  log?.append("approval", { id: call.id, tool: call.name, summary: access.summary, behavior, reason });
+  const suggestion = behavior === "deny" && decision.behavior === "ask" ? decision.suggestion : undefined;
+  log?.append("approval", {
+    id: call.id,
+    tool: call.name,
+    summary: access.summary,
+    behavior,
+    reason,
+    ...(suggestion ? { suggestion } : {}),
+  });
   if (access.kind !== "read" || behavior === "deny") {
-    emit({ type: "approval", id: call.id, name: call.name, summary: access.summary, behavior, reason });
+    emit({
+      type: "approval",
+      id: call.id,
+      name: call.name,
+      summary: access.summary,
+      behavior,
+      reason,
+      ...(suggestion ? { suggestion } : {}),
+    });
   }
   if (behavior === "deny") {
     return fail(
@@ -245,7 +279,9 @@ async function runTool(
     );
   }
 
-  if (access.kind !== "read") await beforeChange(access.summary);
+  // Reads and read-only commands change nothing, so they need no checkpoint.
+  const changes = access.kind !== "read" && !decision.readOnly;
+  if (changes) await beforeChange(access.summary);
   let out: ToolResult;
   try {
     out = await tool.run(args, ctx);
@@ -255,7 +291,7 @@ async function runTool(
   }
   const isError = out.isError ?? false;
   emit({ type: "tool_result", id: call.id, name: call.name, content: out.content, isError });
-  return { content: out.content, isError, ...(access.kind !== "read" ? { changed: access.summary } : {}) };
+  return { content: out.content, isError, ...(changes ? { changed: access.summary } : {}) };
 }
 
 // "Edit a.ts, Create b.ts and 2 more"

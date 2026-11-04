@@ -86,14 +86,14 @@ describe("runAgent", () => {
 
   test("an approving asker allows a command", async () => {
     const asked: string[] = [];
-    const { go, events } = setup([callTool("Bash", { command: "echo approved" }), say("ok")], {
+    const { go, events } = setup([callTool("Bash", { command: "touch approved.txt" }), say("ok")], {
       ask: async ({ access }) => {
         asked.push(access.summary);
         return true;
       },
     });
     await go();
-    expect(asked).toEqual(["Run `echo approved`"]);
+    expect(asked).toEqual(["Run `touch approved.txt`"]);
     expect(events).toContainEqual(expect.objectContaining({ type: "tool_result", name: "Bash", isError: false }));
   });
 
@@ -201,6 +201,21 @@ describe("runAgent", () => {
     });
     await go();
     expect(calls).toBe(0);
+  });
+
+  test("read-only commands run without asking and take no checkpoint", async () => {
+    let calls = 0;
+    const { go, events } = setup([callTool("Bash", { command: "ls && git status 2>/dev/null; pwd" }), say("ok")], {
+      checkpoint: async () => {
+        calls++;
+        return "x";
+      },
+    });
+    await go();
+    expect(calls).toBe(0);
+    expect(events).toContainEqual(
+      expect.objectContaining({ type: "approval", behavior: "allow", reason: "read-only command" }),
+    );
   });
 
   test("lists skills, loads one with the Skill tool, and reads its files without asking", async () => {

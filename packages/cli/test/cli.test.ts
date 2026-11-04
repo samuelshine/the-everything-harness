@@ -100,7 +100,7 @@ describe("teh cli", () => {
       turns: [callTool("Bash", { command: "npm test" }), say("blocked")],
     });
     expect(r.err).toContain("✗ denied: Run `npm test`");
-    expect(r.err).toContain('--allowedTools "Bash(<exact command>)"');
+    expect(r.err).toContain("--allowedTools 'Bash(npm test:*)'");
   });
 
   test("--allowedTools lets an exact command run", async () => {
@@ -368,6 +368,79 @@ describe("teh cli", () => {
       const again = await call(["rewind", "5", "--code-only", "--yes"], { cwd, home });
       expect(again.out).toContain("Files: already as they were at this point.");
       expect(again.out).toContain("Nothing to do");
+    });
+  });
+
+  describe("permissions (ADR-0003)", () => {
+    test("read-only commands run headlessly without any flags", async () => {
+      const r = await call(["-p", "--model", "fake:fake", "look"], {
+        turns: [callTool("Bash", { command: "ls -a && git status 2>/dev/null || pwd" }), say("done")],
+      });
+      expect(r.err).not.toContain("denied");
+      expect(r.fake.requests[1]?.items.at(-1)).toMatchObject({ isError: false });
+    });
+
+    test("json output lists rules that would allow the denied actions", async () => {
+      const r = await call(["-p", "--model", "fake:fake", "--output-format", "json", "build"], {
+        turns: [callTool("Bash", { command: "make build" }), say("blocked")],
+      });
+      expect(JSON.parse(r.out)).toMatchObject({ suggested_rules: ["Bash(make build:*)"] });
+    });
+
+    test("project allow rules wait for teh trust; project deny rules apply at once", async () => {
+      const cwd = temp();
+      const home = temp();
+      mkdirSync(join(cwd, ".claude"), { recursive: true });
+      writeFileSync(
+        join(cwd, ".claude/settings.json"),
+        JSON.stringify({ permissions: { allow: ["Bash(touch:*)"], deny: ["Bash(git push:*)"] } }),
+      );
+      const touch = () => [callTool("Bash", { command: "touch made.txt" }), say("ok")];
+      const before = await call(["-p", "--model", "fake:fake", "make it"], { cwd, home, turns: touch() });
+      expect(before.err).toContain("ignoring 1 allow rule(s) in project settings until you trust this folder");
+      expect(before.err).toContain("denied: Run `touch made.txt`");
+      expect(existsSync(join(cwd, "made.txt"))).toBe(false);
+
+      const listed = await call(["permissions"], { cwd, home });
+      expect(listed.out).toContain("not trusted");
+      expect(listed.out).toContain("Bash(git push:*)");
+      expect(listed.out).toContain("(ignored until trusted)");
+
+      const t = await call(["trust"], { cwd, home });
+      expect(t.out).toContain("Bash(touch:*)");
+      const after = await call(["-p", "--model", "fake:fake", "make it"], { cwd, home, turns: touch() });
+      expect(after.err).not.toContain("denied");
+      expect(existsSync(join(cwd, "made.txt"))).toBe(true);
+
+      const push = await call(["-p", "--model", "fake:fake", "--permission-mode", "bypassPermissions", "push"], {
+        cwd,
+        home,
+        turns: [callTool("Bash", { command: "git push origin main" }), say("no")],
+      });
+      expect(push.err).toContain("blocked by rule Bash(git push:*)");
+
+      await call(["trust", "--revoke"], { cwd, home });
+      expect((await call(["permissions"], { cwd, home })).out).toContain("not trusted");
+    });
+
+    test("a command's allowed-tools grant applies once loaded, for trusted projects only", async () => {
+      const cwd = temp();
+      const home = temp();
+      mkdirSync(join(cwd, ".claude/commands"), { recursive: true });
+      writeFileSync(
+        join(cwd, ".claude/commands/mk.md"),
+        "---\nallowed-tools: Bash(touch:*), Bash(mkdir:*)\n---\nCreate the file.\n",
+      );
+      const turns = () => [callTool("Bash", { command: "touch granted.txt" }), say("ok")];
+      const untrusted = await call(["-p", "--model", "fake:fake", "/mk"], { cwd, home, turns: turns() });
+      expect(untrusted.err).toContain("allowed-tools of project skill(s) mk");
+      expect(existsSync(join(cwd, "granted.txt"))).toBe(false);
+      await call(["trust"], { cwd, home });
+      const plain = await call(["-p", "--model", "fake:fake", "no skill"], { cwd, home, turns: turns() });
+      expect(plain.err).toContain("denied");
+      const trusted = await call(["-p", "--model", "fake:fake", "/mk"], { cwd, home, turns: turns() });
+      expect(trusted.err).not.toContain("denied");
+      expect(existsSync(join(cwd, "granted.txt"))).toBe(true);
     });
   });
 

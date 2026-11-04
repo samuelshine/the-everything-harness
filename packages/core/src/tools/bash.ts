@@ -1,5 +1,5 @@
-// Bash. Runs in the working directory. Not sandboxed yet (ADR-0003); every command
-// needs approval unless the user allowed it explicitly.
+// Bash. Runs in the working directory. Not sandboxed yet (ADR-0003); commands need approval
+// unless they are read-only or a rule allows them.
 import { int, obj, str, type Tool, ToolInputError, truncate } from "./tool";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
@@ -7,8 +7,14 @@ const MAX_TIMEOUT_MS = 600_000;
 
 type BashArgs = { command: string; timeoutMs: number; description?: string };
 
+// Commands run in bash; on Windows without bash they fall back to cmd.exe, whose syntax
+// the permission engine does not parse, so no command is treated as read-only there.
+export function posixShell(): boolean {
+  return process.platform !== "win32" || Bun.which("bash") !== null;
+}
+
 function shell(command: string): string[] {
-  if (process.platform === "win32" && !Bun.which("bash")) return ["cmd.exe", "/d", "/s", "/c", command];
+  if (!posixShell()) return ["cmd.exe", "/d", "/s", "/c", command];
   return ["bash", "-c", command];
 }
 
