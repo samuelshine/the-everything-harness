@@ -27,6 +27,13 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.3
+      - name: Install bubblewrap (Linux sandbox tests)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq bubblewrap
+          # Ubuntu 24.04 restricts unprivileged user namespaces, which bubblewrap needs.
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0 || true
+          bwrap --ro-bind / / --dev /dev --unshare-net true && echo "bubblewrap works"
       - run: bun install --frozen-lockfile
       - run: bun run lint
       - run: bun run typecheck

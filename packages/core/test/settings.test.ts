@@ -38,6 +38,19 @@ describe("settings files", () => {
     ]);
   });
 
+  test("reads the sandbox section and resolves allowWrite paths", () => {
+    const teh = tempDir();
+    const home = tempDir();
+    const root = tempDir();
+    write(join(teh, "settings.json"), { sandbox: { network: false, allowWrite: ["~/scratch"] } });
+    write(join(root, ".teh", "settings.json"), { sandbox: { enabled: false, allowWrite: ["out"] } });
+    const s = loadSettings(teh, root, home);
+    expect(s.sandbox.user).toEqual({ network: false, allowWrite: [join(home, "scratch")] });
+    expect(s.sandbox.project).toEqual({ enabled: "off", allowWrite: [join(root, "out")] });
+    write(join(root, ".claude", "settings.json"), { sandbox: { enabled: "sometimes" } });
+    expect(loadSettings(teh, root, home).problems[0]?.message).toContain("sandbox.enabled");
+  });
+
   test("trust is recorded per project root", () => {
     const teh = tempDir();
     const root = tempDir();

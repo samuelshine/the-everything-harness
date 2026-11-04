@@ -3,6 +3,8 @@
 import { int, obj, str, type Tool, ToolInputError, truncate } from "./tool";
 
 const DEFAULT_TIMEOUT_MS = 120_000;
+const SANDBOX_DENIAL =
+  /Operation not permitted|Read-only file system|Permission denied|Could not resolve host|Network is unreachable|Temporary failure in name resolution|sandbox/i;
 const MAX_TIMEOUT_MS = 600_000;
 
 type BashArgs = { command: string; timeoutMs: number; description?: string };
@@ -44,7 +46,9 @@ export const bashTool: Tool<BashArgs> = {
     return { kind: "execute", command: a.command, summary: `Run \`${a.command}\`` };
   },
   async run(a, ctx) {
-    const p = Bun.spawn(shell(a.command), { cwd: ctx.cwd, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
+    const level = ctx.sandboxLevel ?? "workspace-write";
+    const argv = ctx.sandbox ? ctx.sandbox.wrap(shell(a.command), level, ctx.cwd) : shell(a.command);
+    const p = Bun.spawn(argv, { cwd: ctx.cwd, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
     let timedOut = false;
     const timer = setTimeout(() => {
       timedOut = true;
@@ -60,7 +64,14 @@ export const bashTool: Tool<BashArgs> = {
       ]);
       const parts = [stdout.trimEnd(), stderr.trimEnd() && `[stderr]\n${stderr.trimEnd()}`].filter(Boolean);
       const status = timedOut ? `timed out after ${a.timeoutMs} ms` : `exit code ${code}`;
-      return { content: truncate([...parts, `[${status}]`].join("\n")), isError: timedOut || code !== 0 };
+      const failed = timedOut || code !== 0;
+      // Tell the model why, so it explains the limit instead of retrying blindly.
+      if (failed && ctx.sandbox && SANDBOX_DENIAL.test(stderr)) {
+        parts.push(
+          `[sandbox: this command ran ${level}: ${ctx.sandbox.describe(level)}. If it needs more, tell the user; do not try to work around the sandbox]`,
+        );
+      }
+      return { content: truncate([...parts, `[${status}]`].join("\n")), isError: failed };
     } finally {
       clearTimeout(timer);
       ctx.signal?.removeEventListener("abort", onAbort);

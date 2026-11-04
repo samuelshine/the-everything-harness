@@ -423,6 +423,23 @@ describe("teh cli", () => {
       expect((await call(["permissions"], { cwd, home })).out).toContain("not trusted");
     });
 
+    test("--sandbox is validated, and an untrusted project can only tighten the sandbox", async () => {
+      expect((await call(["--sandbox", "maybe", "-p", "x"])).err).toContain("--sandbox must be one of");
+      const cwd = temp();
+      const home = temp();
+      mkdirSync(join(cwd, ".teh"), { recursive: true });
+      writeFileSync(join(cwd, ".teh/settings.json"), JSON.stringify({ sandbox: { enabled: "off", network: false } }));
+      const listed = await call(["permissions"], { cwd, home });
+      if (process.platform === "darwin" || listed.out.includes("bubblewrap")) {
+        // "off" from an untrusted project is ignored; network false is honoured.
+        expect(listed.out).toMatch(/seatbelt|bubblewrap/);
+        expect(listed.out).toContain("network off");
+        await call(["trust"], { cwd, home });
+        expect((await call(["permissions"], { cwd, home })).out).toContain("  none");
+      }
+      expect((await call(["permissions", "--sandbox", "off"], { cwd, home })).out).toContain("  none");
+    });
+
     test("a command's allowed-tools grant applies once loaded, for trusted projects only", async () => {
       const cwd = temp();
       const home = temp();

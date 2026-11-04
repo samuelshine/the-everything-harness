@@ -11,9 +11,13 @@ export type SettingsScope = "user" | "project";
 
 export type RuleSet = { allow: Rule[]; ask: Rule[]; deny: Rule[] };
 
+// The "sandbox" section: { "enabled": "auto" | "on" | "off", "network": bool, "allowWrite": [paths] }.
+export type SandboxSettings = { enabled?: "auto" | "on" | "off"; network?: boolean; allowWrite?: string[] };
+
 export type LoadedSettings = {
   user: RuleSet;
   project: RuleSet;
+  sandbox: { user: SandboxSettings; project: SandboxSettings };
   // Files that were read, and problems with ones that could not be.
   files: { path: string; scope: SettingsScope }[];
   problems: { path: string; message: string }[];
@@ -33,7 +37,13 @@ export function settingsFiles(tehHome: string, projectRoot: string, home = homed
 const empty = (): RuleSet => ({ allow: [], ask: [], deny: [] });
 
 export function loadSettings(tehHome: string, projectRoot: string, home = homedir()): LoadedSettings {
-  const out: LoadedSettings = { user: empty(), project: empty(), files: [], problems: [] };
+  const out: LoadedSettings = {
+    user: empty(),
+    project: empty(),
+    sandbox: { user: {}, project: {} },
+    files: [],
+    problems: [],
+  };
   const seen = new Set<string>();
   for (const f of settingsFiles(tehHome, projectRoot, home)) {
     const path = resolve(f.path);
@@ -48,6 +58,25 @@ export function loadSettings(tehHome: string, projectRoot: string, home = homedi
       continue;
     }
     out.files.push({ path, scope: f.scope });
+    const sb = (data as { sandbox?: Record<string, unknown> })?.sandbox;
+    if (sb && typeof sb === "object") {
+      const into = out.sandbox[f.scope];
+      const enabled = sb.enabled === true ? "on" : sb.enabled === false ? "off" : sb.enabled;
+      if (enabled === "auto" || enabled === "on" || enabled === "off") into.enabled = enabled;
+      else if (enabled !== undefined)
+        out.problems.push({ path, message: 'sandbox.enabled must be "auto", "on" or "off"' });
+      if (typeof sb.network === "boolean") into.network = sb.network;
+      else if (sb.network !== undefined) out.problems.push({ path, message: "sandbox.network must be true or false" });
+      if (Array.isArray(sb.allowWrite) && sb.allowWrite.every((p) => typeof p === "string")) {
+        const base = f.scope === "project" ? projectRoot : home;
+        into.allowWrite = [
+          ...(into.allowWrite ?? []),
+          ...(sb.allowWrite as string[]).map((p) => (p.startsWith("~/") ? join(home, p.slice(2)) : resolve(base, p))),
+        ];
+      } else if (sb.allowWrite !== undefined) {
+        out.problems.push({ path, message: "sandbox.allowWrite must be a list of paths" });
+      }
+    }
     const perms = (data as { permissions?: Record<string, unknown> })?.permissions;
     if (!perms || typeof perms !== "object") continue;
     for (const kind of ["allow", "ask", "deny"] as const) {

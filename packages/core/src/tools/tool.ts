@@ -1,5 +1,6 @@
 import { realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
+import type { Sandbox, SandboxLevel } from "../sandbox";
 import type { ToolSpec } from "../types";
 
 export type ToolContext = {
@@ -11,6 +12,10 @@ export type ToolContext = {
   // Directories the agent may read without approval but not change (e.g. skill folders).
   readRoots?: string[];
   signal?: AbortSignal;
+  // OS sandbox for shell commands (ADR-0003), and the level for the current call: commands
+  // that ran without asking because they are read-only get the stricter one.
+  sandbox?: Sandbox;
+  sandboxLevel?: SandboxLevel;
 };
 
 export type ToolResult = { content: string; isError?: boolean };

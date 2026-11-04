@@ -1,6 +1,7 @@
 // Permission rules for a run, and the trust and permissions commands (ADR-0003).
-import { relative } from "node:path";
+import { isAbsolute, join, relative, resolve } from "node:path";
 import {
+  detectSandbox,
   findProjectRoot,
   formatRule,
   isTrusted,
@@ -9,14 +10,21 @@ import {
   type PermissionMode,
   parseRules,
   type Rule,
+  type Sandbox,
   type Skill,
   setTrusted,
   tehHome,
 } from "@everything-harness/core";
 import type { Io } from "./cli";
 
+export const SANDBOX_MODES = ["auto", "on", "off"] as const;
+export type SandboxMode = (typeof SANDBOX_MODES)[number];
+
 export type RunPermissions = {
   config: PermissionConfig;
+  sandbox?: Sandbox;
+  // Set when --sandbox on (or settings) asked for a sandbox that cannot run here.
+  sandboxError?: string;
   // Skills with project-level allowed-tools removed when the folder is untrusted.
   skills: Skill[];
   warnings: string[];
@@ -35,6 +43,8 @@ export function runPermissions(
     disallowed: string[];
     skills: Skill[];
     home: string;
+    sandbox?: SandboxMode;
+    addDirs?: string[];
   },
 ): RunPermissions {
   const root = findProjectRoot(io.cwd);
@@ -62,22 +72,65 @@ export function runPermissions(
         return rest;
       });
 
-  return {
-    config: {
-      mode: opts.mode,
-      allow: [
-        ...parseRules(opts.allowed, "--allowedTools"),
-        ...settings.user.allow,
-        ...(trusted ? settings.project.allow : []),
-      ],
-      ask: [...settings.user.ask, ...settings.project.ask],
-      deny: [...parseRules(opts.disallowed, "--disallowedTools"), ...settings.user.deny, ...settings.project.deny],
-      projectRoot: root,
+  const config: PermissionConfig = {
+    mode: opts.mode,
+    allow: [
+      ...parseRules(opts.allowed, "--allowedTools"),
+      ...settings.user.allow,
+      ...(trusted ? settings.project.allow : []),
+    ],
+    ask: [...settings.user.ask, ...settings.project.ask],
+    deny: [...parseRules(opts.disallowed, "--disallowedTools"), ...settings.user.deny, ...settings.project.deny],
+    projectRoot: root,
+    home: opts.home,
+  };
+
+  // Sandbox settings: an untrusted project may only make the sandbox stricter.
+  const sbUser = settings.sandbox.user;
+  const sbProject = settings.sandbox.project;
+  const projectEnabled = trusted ? sbProject.enabled : sbProject.enabled === "on" ? "on" : undefined;
+  const enabled: SandboxMode = opts.sandbox ?? projectEnabled ?? sbUser.enabled ?? "auto";
+  const network = trusted
+    ? (sbProject.network ?? sbUser.network ?? true)
+    : sbProject.network === false
+      ? false
+      : (sbUser.network ?? true);
+  const allowWrite = [...(sbUser.allowWrite ?? []), ...(trusted ? (sbProject.allowWrite ?? []) : [])];
+  let sandbox: Sandbox | undefined;
+  let sandboxError: string | undefined;
+  if (enabled !== "off") {
+    const found = detectSandbox({
+      workspaceRoots: [root, io.cwd, ...(opts.addDirs ?? []).map((d) => resolve(io.cwd, d))],
+      allowWrite,
+      network,
+      denyRead: config.deny.flatMap((r) =>
+        r.tool === "Read" && r.pattern ? literalPath(r.pattern, root, opts.home) : [],
+      ),
       home: opts.home,
-    },
+    });
+    if ("sandbox" in found) sandbox = found.sandbox;
+    else if (enabled === "on") sandboxError = `no sandbox available: ${found.unavailable}`;
+    else if (process.platform !== "win32") {
+      warnings.push(`shell commands run without a sandbox: ${found.unavailable}`);
+    }
+  }
+
+  return {
+    ...(sandbox ? { sandbox } : {}),
+    ...(sandboxError ? { sandboxError } : {}),
+    config,
     skills,
     warnings,
   };
+}
+
+// A Read rule's path when it has no wildcards, so the sandbox can hide it too.
+function literalPath(pattern: string, root: string, home: string): string[] {
+  if (/[*?[\]{}]/.test(pattern)) return [];
+  const p = pattern.trim();
+  if (p.startsWith("//")) return [p.slice(1)];
+  if (p.startsWith("~/")) return [join(home, p.slice(2))];
+  return [isAbsolute(p) ? join(root, p) : resolve(root, p)];
 }
 
 export function trust(io: Io, revoke: boolean, home: string): number {
@@ -104,7 +157,7 @@ export function trust(io: Io, revoke: boolean, home: string): number {
   return 0;
 }
 
-export function printPermissions(io: Io, skills: Skill[], home: string): number {
+export function printPermissions(io: Io, skills: Skill[], home: string, sandboxMode?: SandboxMode): number {
   const root = findProjectRoot(io.cwd);
   const teh = tehHome(io.env);
   const settings = loadSettings(teh, root, home);
@@ -128,6 +181,21 @@ export function printPermissions(io: Io, skills: Skill[], home: string): number 
       io.out(`  /${s.name}: ${(s.allowedTools ?? []).join(", ")}${off}\n`);
     }
   }
+  const run = runPermissions(io, {
+    mode: "default",
+    allowed: [],
+    disallowed: [],
+    skills,
+    home,
+    ...(sandboxMode ? { sandbox: sandboxMode } : {}),
+  });
+  io.out("\nSandbox for shell commands:\n");
+  if (run.sandbox) {
+    io.out(`  ${run.sandbox.kind}\n`);
+    io.out(`  commands that ran without asking: ${run.sandbox.describe("read-only")}\n`);
+    io.out(`  commands you or a rule allowed: ${run.sandbox.describe("workspace-write")}\n`);
+  } else
+    io.out(`  none${run.sandboxError ? ` (${run.sandboxError})` : ""}; allowed commands can do anything you can\n`);
   io.out(
     "\nAlways allowed: reading inside the project, and read-only commands such as ls, cat, grep, git status/log/diff.\n" +
       "Always asks (outside bypassPermissions): writes inside .git, .teh, .claude and .agents.\n",

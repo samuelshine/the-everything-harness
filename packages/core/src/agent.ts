@@ -7,6 +7,7 @@ import { decide, type PermissionConfig, parseRules, type Rule } from "./permissi
 import { systemPrompt } from "./prompt";
 import type { Provider } from "./providers/provider";
 import { type RouteResult, routerHint } from "./router";
+import type { Sandbox } from "./sandbox";
 import type { SessionLog } from "./session";
 import { type Skill, skillListing } from "./skills";
 import { skillTool } from "./tools/skill";
@@ -57,6 +58,8 @@ export type AgentOptions = {
   // Skills the model may load with the Skill tool (ADR-0015), and the listing budget.
   skills?: Skill[];
   skillListingChars?: number;
+  // OS sandbox for shell commands (ADR-0003); undefined runs them unsandboxed.
+  sandbox?: Sandbox;
   // Earlier conversation when resuming a session (ADR-0004); the prompt is appended to it.
   history?: Item[];
   // Called before the first change of each model turn that changes anything (ADR-0004),
@@ -97,6 +100,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     workspaceRoots: [projectRoot, opts.cwd, ...(opts.addDirs ?? [])],
     readState: new Map(),
     readRoots: usableSkills.map((s) => s.dir),
+    ...(opts.sandbox ? { sandbox: opts.sandbox } : {}),
     ...(opts.signal ? { signal: opts.signal } : {}),
   };
   const byName = new Map(tools.map((t) => [t.spec.name, t]));
@@ -284,7 +288,7 @@ async function runTool(
   if (changes) await beforeChange(access.summary);
   let out: ToolResult;
   try {
-    out = await tool.run(args, ctx);
+    out = await tool.run(args, { ...ctx, sandboxLevel: decision.readOnly ? "read-only" : "workspace-write" });
   } catch (e) {
     if (e instanceof ProviderError) throw e;
     out = { content: `${call.name} failed: ${(e as Error).message}`, isError: true };

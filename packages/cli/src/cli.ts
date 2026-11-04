@@ -34,7 +34,7 @@ import {
   tehHome,
   VERSION,
 } from "@everything-harness/core";
-import { printPermissions, runPermissions, trust } from "./permissions";
+import { printPermissions, runPermissions, SANDBOX_MODES, type SandboxMode, trust } from "./permissions";
 import { rewind } from "./rewind";
 
 export type Io = {
@@ -74,6 +74,10 @@ Options:
                                 {"permissions": {"allow": [...], "ask": [...], "deny": [...]}}.
                                 Read-only commands (ls, cat, grep, git status, …) never ask
   --add-dir <dir...>            Extra directories the agent may change
+  --sandbox <mode>              auto (default): run shell commands in the OS sandbox when there is
+                                one (macOS Seatbelt, Linux bubblewrap); on: refuse to run without
+                                it; off: no sandbox (or set TEH_SANDBOX). Commands that ran without
+                                asking get a read-only sandbox with no network
   --max-turns <n>               Stop after n model turns (default 50)
   --skill-router <mode>         off (default), embed, or embed+confirm: suggest skills to the model
                                 before it starts (or set TEH_SKILL_ROUTER). Uses nomic-embed-text
@@ -122,9 +126,12 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   if (positionals[0] === "sessions") return printSessions(io);
   if (positionals[0] === "skills") return printSkills(io);
   if (positionals[0] === "trust") return trust(io, v.revoke ?? false, userHome(io));
+  const sandboxMode = (v.sandbox ?? io.env.TEH_SANDBOX) as SandboxMode | undefined;
+  if (sandboxMode !== undefined && !SANDBOX_MODES.includes(sandboxMode))
+    return usageError(io, `--sandbox must be one of ${SANDBOX_MODES.join(", ")}`);
   if (positionals[0] === "permissions") {
     const root = findProjectRoot(io.cwd);
-    return printPermissions(io, loadSkills(tehHome(io.env), root, userHome(io)).skills, userHome(io));
+    return printPermissions(io, loadSkills(tehHome(io.env), root, userHome(io)).skills, userHome(io), sandboxMode);
   }
   if (positionals[0] === "rewind") {
     if (v["code-only"] && v["conversation-only"]) return usageError(io, "choose --code-only or --conversation-only");
@@ -175,7 +182,10 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     disallowed: v.disallowedTools ?? [],
     skills: loaded.skills,
     home: userHome(io),
+    addDirs: v["add-dir"] ?? [],
+    ...(sandboxMode ? { sandbox: sandboxMode } : {}),
   });
+  if (perms.sandboxError) return usageError(io, `${perms.sandboxError}\n  fix: install it, or pass --sandbox off`);
   for (const w of perms.warnings) io.err(`teh: warning: ${w}\n`);
   const skills = perms.skills;
   // "/name args" runs a skill or command (ADR-0015).
@@ -244,7 +254,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     const onEvent = format === "stream-json" ? streamJson(io) : format === "text" ? text.onEvent : trackDenied(denied);
     if (format === "stream-json") {
       io.out(
-        `${JSON.stringify({ type: "system", subtype: "init", session_id: session.id, model: modelSpec, cwd: io.cwd, tools: builtinTools.map((t) => t.spec.name), permission_mode: mode })}\n`,
+        `${JSON.stringify({ type: "system", subtype: "init", session_id: session.id, model: modelSpec, cwd: io.cwd, tools: builtinTools.map((t) => t.spec.name), permission_mode: mode, sandbox: perms.sandbox?.kind ?? "none" })}\n`,
       );
     }
 
@@ -255,6 +265,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       cwd: io.cwd,
       tools: builtinTools,
       permissions: perms.config,
+      ...(perms.sandbox ? { sandbox: perms.sandbox } : {}),
       // Headless runs cannot ask, so anything that needs approval is denied (ADR-0008).
       ask: async () => false,
       addDirs: v["add-dir"] ?? [],
@@ -330,6 +341,7 @@ function parse(argv: string[]) {
       session: { type: "string" },
       "skill-router": { type: "string" },
       revoke: { type: "boolean" },
+      sandbox: { type: "string" },
       version: { type: "boolean", short: "v" },
       help: { type: "boolean", short: "h" },
     },
