@@ -10,6 +10,7 @@ import { type RouteResult, routerHint } from "./router";
 import type { Sandbox } from "./sandbox";
 import type { SessionLog } from "./session";
 import { type Skill, skillListing } from "./skills";
+import type { OutputStyle } from "./styles";
 import { skillTool } from "./tools/skill";
 import type { Access, Tool, ToolContext, ToolResult } from "./tools/tool";
 import { ToolInputError } from "./tools/tool";
@@ -58,6 +59,8 @@ export type AgentOptions = {
   // Skills the model may load with the Skill tool (ADR-0015), and the listing budget.
   skills?: Skill[];
   skillListingChars?: number;
+  // Output style for the session (ADR-0015); undefined is the default style.
+  outputStyle?: OutputStyle;
   // OS sandbox for shell commands (ADR-0003); undefined runs them unsandboxed.
   sandbox?: Sandbox;
   // Earlier conversation when resuming a session (ADR-0004); the prompt is appended to it.
@@ -94,6 +97,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     isGitRepo: existsSync(join(projectRoot, ".git")),
     instructions: renderInstructions(instructions, opts.cwd),
     ...(listing.text ? { skills: listing.text, skillsOmitted: listing.omitted } : {}),
+    ...(opts.outputStyle ? { style: opts.outputStyle } : {}),
   });
   const ctx: ToolContext = {
     cwd: opts.cwd,
@@ -140,6 +144,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     provider: opts.provider.id,
     model: opts.model,
     permissionMode: opts.permissions.mode,
+    ...(opts.outputStyle && opts.outputStyle.name !== "default" ? { outputStyle: opts.outputStyle.name } : {}),
     instructionFiles: instructions.map((f) => f.path),
     resumed: (opts.history?.length ?? 0) > 0,
   });

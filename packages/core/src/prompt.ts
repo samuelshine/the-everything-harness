@@ -10,20 +10,41 @@ export type PromptEnv = {
   // Name and description of each skill the model may load (ADR-0015).
   skills?: string;
   skillsOmitted?: number;
+  // The session's output style (ADR-0015); none or "default" keeps the base prompt.
+  style?: { name: string; body: string; keepCodingInstructions: boolean };
 };
 
-export function systemPrompt(env: PromptEnv): string {
-  const parts = [
-    `You are teh (The Everything Harness), a coding agent working in the user's terminal.
-You help with software engineering tasks: reading and changing code, running commands, and explaining what you find.
+const IDENTITY = `You are teh (The Everything Harness), a coding agent working in the user's terminal.
+You help with software engineering tasks: reading and changing code, running commands, and explaining what you find.`;
 
-How to work:
+// Coding guidance; an output style can drop it (keep-coding-instructions: false).
+const CODING = `How to work:
 - Investigate before acting. Use Glob and Grep to find code and Read to inspect it; do not guess file contents.
 - Read a file before you Edit or overwrite it. Make the smallest change that solves the task and match the surrounding style.
 - Prefer Edit for changes to existing files; use Write only for new files or full rewrites.
-- Use Bash for builds, tests and other commands. Prefer the dedicated tools over cat, grep or find.
-- Some actions need the user's approval. If one is denied, do not retry it unchanged: adjust your approach or explain what you need.
-- When you are done, reply with a short summary of what you did and anything the user should check. Do not invent results you did not observe.`,
+- Use Bash for builds, tests and other commands. Prefer the dedicated tools over cat, grep or find.`;
+
+// Always kept, whatever the style.
+const SAFETY = `- Some actions need the user's approval. If one is denied, do not retry it unchanged: adjust your approach or explain what you need.
+- Do not invent results you did not observe.`;
+
+// Response format; an output style replaces it.
+const FORMAT = "- When you are done, reply with a short summary of what you did and anything the user should check.";
+
+function basePrompt(style: PromptEnv["style"]): string {
+  if (!style || !style.body) return `${IDENTITY}\n\n${CODING}\n${SAFETY}\n${FORMAT}`;
+  const head = style.keepCodingInstructions
+    ? `${IDENTITY}\n\n${CODING}\n${SAFETY}`
+    : `${IDENTITY}\n\nAlways:\n${SAFETY}`;
+  return `${head}\n\n<output_style name="${style.name}">
+The user chose this output style for the session. Follow it for how you work and respond.
+${style.body}
+</output_style>`;
+}
+
+export function systemPrompt(env: PromptEnv): string {
+  const parts = [
+    basePrompt(env.style),
     `<environment>
 working_directory: ${env.cwd}
 project_root: ${env.projectRoot}

@@ -461,6 +461,43 @@ describe("teh cli", () => {
     });
   });
 
+  describe("output styles", () => {
+    test("--output-style puts the style in the system prompt and is kept on resume", async () => {
+      const cwd = temp();
+      const home = temp();
+      const r = await call(["-p", "--model", "fake:fake", "--output-style", "Explanatory", "hi"], {
+        cwd,
+        home,
+        turns: [say("ok")],
+      });
+      expect(r.err).toContain("› output style: explanatory");
+      expect(r.fake.requests[0]?.system).toContain('<output_style name="explanatory">');
+      const again = await call(["-p", "--model", "fake:fake", "-c", "more"], { cwd, home, turns: [say("ok")] });
+      expect(again.fake.requests[0]?.system).toContain('<output_style name="explanatory">');
+      const plain = await call(["-p", "--model", "fake:fake", "--output-style", "default", "-c", "x"], {
+        cwd,
+        home,
+        turns: [say("ok")],
+      });
+      expect(plain.fake.requests[0]?.system).not.toContain("<output_style");
+    });
+
+    test("settings choose a style; unknown names are rejected with the list", async () => {
+      const cwd = temp();
+      const home = temp();
+      mkdirSync(join(cwd, ".teh"), { recursive: true });
+      writeFileSync(join(cwd, ".teh/settings.json"), JSON.stringify({ outputStyle: "learning" }));
+      const r = await call(["-p", "--model", "fake:fake", "hi"], { cwd, home, turns: [say("ok")] });
+      expect(r.fake.requests[0]?.system).toContain("TODO(human)");
+      const listed = await call(["styles"], { cwd, home });
+      expect(listed.out).toMatch(/\* learning/);
+      const bad = await call(["-p", "--model", "fake:fake", "--output-style", "pirate", "hi"], { cwd, home });
+      expect(bad.code).toBe(2);
+      expect(bad.err).toContain('no output style named "pirate"');
+      expect(bad.err).toContain("default, explanatory, learning");
+    });
+  });
+
   describe("skills", () => {
     function withSkills() {
       const cwd = temp();

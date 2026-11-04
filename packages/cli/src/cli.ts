@@ -10,12 +10,17 @@ import {
   CheckpointStore,
   createProvider,
   DEFAULT_EMBED_MODEL,
+  DEFAULT_STYLE,
   expandSkill,
   findProjectRoot,
   findSession,
+  findStyle,
   type LoadedSession,
   listSessions,
+  loadSettings,
   loadSkills,
+  loadStyles,
+  type OutputStyle,
   PERMISSION_MODES,
   type PermissionMode,
   type Provider,
@@ -55,7 +60,7 @@ export type Deps = { provider?: (name: string) => Provider };
 export const USAGE = `Usage: teh -p [options] [prompt]
        teh models
        teh rewind [point] | teh undo | teh sessions | teh checkpoints | teh restore <id>
-       teh skills | teh permissions | teh trust
+       teh skills | teh styles | teh permissions | teh trust
 
 Run one prompt headlessly and print the result. The prompt can also be piped on stdin.
 The interactive terminal UI is not built yet.
@@ -79,6 +84,9 @@ Options:
                                 it; off: no sandbox (or set TEH_SANDBOX). Commands that ran without
                                 asking get a read-only sandbox with no network
   --max-turns <n>               Stop after n model turns (default 50)
+  --output-style <name>         How teh works and replies: default, explanatory, learning, or your
+                                own from ~/.teh/output-styles or .claude/output-styles (or set
+                                "outputStyle" in settings; a resumed session keeps its style)
   --skill-router <mode>         off (default), embed, or embed+confirm: suggest skills to the model
                                 before it starts (or set TEH_SKILL_ROUTER). Uses nomic-embed-text
                                 (TEH_SKILL_ROUTER_EMBED_MODEL) and, for confirm, a small model
@@ -95,6 +103,7 @@ Commands:
       --conversation-only       Restore the conversation only
       --session <id>            Rewind another session (see \`teh sessions\`)
   skills                        List skills and commands; run one with teh -p "/name args"
+  styles                        List output styles (--output-style <name>)
   sessions                      List this project's sessions, newest first
   checkpoints                   List file snapshots taken before each run changed anything
   permissions                   Show the permission rules in effect and where each comes from
@@ -125,6 +134,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   if (positionals[0] === "checkpoints") return listCheckpoints(io);
   if (positionals[0] === "sessions") return printSessions(io);
   if (positionals[0] === "skills") return printSkills(io);
+  if (positionals[0] === "styles") return printStyles(io);
   if (positionals[0] === "trust") return trust(io, v.revoke ?? false, userHome(io));
   const sandboxMode = (v.sandbox ?? io.env.TEH_SANDBOX) as SandboxMode | undefined;
   if (sandboxMode !== undefined && !SANDBOX_MODES.includes(sandboxMode))
@@ -219,6 +229,9 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   if (routerMode === "embed+confirm" && !io.env.TEH_SKILL_ROUTER_MODEL)
     return usageError(io, "--skill-router embed+confirm needs TEH_SKILL_ROUTER_MODEL, e.g. ollama:qwen2.5:0.5b");
 
+  const style = pickStyle(io, v["output-style"], resumed?.outputStyle);
+  if ("error" in style) return usageError(io, style.error);
+
   const modelSpec = v.model ?? resumed?.model ?? io.env.TEH_MODEL;
   if (!modelSpec) {
     io.err(
@@ -242,6 +255,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     for (const note of probe.notes) io.err(`teh: warning: ${note}\n`);
 
     const skillRoute = slash ? undefined : await routeSkills(io, routerMode, typed, skills, home, makeProvider);
+    if (format === "text" && style.style.name !== "default") io.err(`› output style: ${style.style.name}\n`);
     if (skillRoute && format === "text" && skillRoute.chosen.length) {
       const scores = skillRoute.candidates.filter((c) => skillRoute.chosen.includes(c.name));
       io.err(`› skill router suggests ${scores.map((c) => `${c.name} (${c.score})`).join(", ")}\n`);
@@ -266,6 +280,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       tools: builtinTools,
       permissions: perms.config,
       ...(perms.sandbox ? { sandbox: perms.sandbox } : {}),
+      ...(style.style.name !== "default" ? { outputStyle: style.style } : {}),
       // Headless runs cannot ask, so anything that needs approval is denied (ADR-0008).
       ask: async () => false,
       addDirs: v["add-dir"] ?? [],
@@ -342,6 +357,7 @@ function parse(argv: string[]) {
       "skill-router": { type: "string" },
       revoke: { type: "boolean" },
       sandbox: { type: "string" },
+      "output-style": { type: "string" },
       version: { type: "boolean", short: "v" },
       help: { type: "boolean", short: "h" },
     },
@@ -526,6 +542,44 @@ function printSessions(io: Io): number {
 
 // The home directory skills are read from, overridable for tests through HOME.
 const userHome = (io: Io) => io.env.HOME || io.env.USERPROFILE || homedir();
+
+// --output-style, else the resumed session's, else settings (project over user), else default.
+function pickStyle(
+  io: Io,
+  flag: string | undefined,
+  resumed: string | undefined,
+): { style: OutputStyle } | { error: string } {
+  const root = findProjectRoot(io.cwd);
+  const home = tehHome(io.env);
+  const { styles, problems } = loadStyles(home, root, userHome(io));
+  for (const p of problems) io.err(`teh: warning: skipped ${p.path}: ${p.message}\n`);
+  const settings = loadSettings(home, root, userHome(io)).outputStyle;
+  const name = flag ?? resumed ?? settings.project ?? settings.user ?? DEFAULT_STYLE;
+  const style = findStyle(styles, name);
+  if (style) return { style };
+  const list = styles.map((s) => s.name).join(", ");
+  const where = flag ? "--output-style" : resumed ? "the resumed session" : "settings outputStyle";
+  return { error: `no output style named "${name}" (from ${where}); available: ${list}\n  \`teh styles\` lists them` };
+}
+
+function printStyles(io: Io): number {
+  const root = findProjectRoot(io.cwd);
+  const home = tehHome(io.env);
+  const { styles, problems } = loadStyles(home, root, userHome(io));
+  const settings = loadSettings(home, root, userHome(io)).outputStyle;
+  const active = (settings.project ?? settings.user ?? DEFAULT_STYLE).toLowerCase();
+  io.out('Output styles (use with --output-style <name>, or set "outputStyle" in settings):\n');
+  for (const s of styles) {
+    const mark = s.name.toLowerCase() === active ? "*" : " ";
+    const from = s.source === "builtin" ? "built-in" : `${s.source}`;
+    io.out(`${mark} ${s.name.padEnd(20)} ${from.padEnd(9)} ${s.description}\n`);
+  }
+  io.out(
+    "\n* is the default for this project. Add your own at ~/.teh/output-styles/<name>.md (Claude Code styles work as they are).\n",
+  );
+  for (const p of problems) io.out(`  skipped ${p.path}: ${p.message}\n`);
+  return 0;
+}
 
 function printSkills(io: Io): number {
   const root = findProjectRoot(io.cwd);

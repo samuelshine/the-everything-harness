@@ -18,6 +18,8 @@ export type LoadedSettings = {
   user: RuleSet;
   project: RuleSet;
   sandbox: { user: SandboxSettings; project: SandboxSettings };
+  // "outputStyle": a style name (ADR-0015). The project's wins over the user's, as in Claude Code.
+  outputStyle: { user?: string; project?: string };
   // Files that were read, and problems with ones that could not be.
   files: { path: string; scope: SettingsScope }[];
   problems: { path: string; message: string }[];
@@ -41,6 +43,7 @@ export function loadSettings(tehHome: string, projectRoot: string, home = homedi
     user: empty(),
     project: empty(),
     sandbox: { user: {}, project: {} },
+    outputStyle: {},
     files: [],
     problems: [],
   };
@@ -58,6 +61,9 @@ export function loadSettings(tehHome: string, projectRoot: string, home = homedi
       continue;
     }
     out.files.push({ path, scope: f.scope });
+    const style = (data as { outputStyle?: unknown })?.outputStyle;
+    if (typeof style === "string" && style.trim()) out.outputStyle[f.scope] = style.trim();
+    else if (style !== undefined) out.problems.push({ path, message: "outputStyle must be a style name" });
     const sb = (data as { sandbox?: Record<string, unknown> })?.sandbox;
     if (sb && typeof sb === "object") {
       const into = out.sandbox[f.scope];
