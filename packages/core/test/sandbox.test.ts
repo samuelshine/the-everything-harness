@@ -5,7 +5,8 @@ import { bubblewrapArgs, detectSandbox, type SandboxLevel, sandboxPlan, seatbelt
 import { bashTool } from "../src/tools/bash";
 import { toolContext } from "./helpers";
 
-describe("sandbox plans", () => {
+// POSIX paths throughout; there is no sandbox on Windows yet (ADR-0013).
+describe.skipIf(process.platform === "win32")("sandbox plans", () => {
   const policy = { workspaceRoots: ["/w"], network: true, home: "/h", denyRead: ["/w/.env"] };
 
   test("read-only commands get no workspace writes, no network and no credentials", () => {
