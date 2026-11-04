@@ -110,4 +110,4 @@ const summary = {
 console.table([summary]);
 const label = v.label ?? v.model.replace(/[:/]/g, "-");
 mkdirSync(join(import.meta.dir, "results"), { recursive: true });
-writeFileSync(join(import.meta.dir, "results", `${label}.json`), `${JSON.stringify({ summary, outcomes }, null, 1)}\n`);
+writeFileSync(join(import.meta.dir, "results", `${label}.json`), `${JSON.stringify({ summary, outcomes }, null, 2)}\n`);
