@@ -60,7 +60,13 @@ Rules can also live in settings files, in Claude Code's format: `{"permissions":
 - **Protected folders:** writes inside `.git`, `.teh`, `.claude` and `.agents` always ask.
 - **Checking:** `teh permissions` shows every rule in effect and where it comes from.
 
-There is no OS sandbox yet. Once you allow a command, it can do anything you could.
+Shell commands also run in an OS sandbox on macOS (Seatbelt) and Linux (bubblewrap; install the `bubblewrap` package):
+- **Commands that ran without asking** can't write anything outside the temp folder, have no network, and can't see `~/.ssh`, `~/.aws` and other credential folders.
+- **Commands you or a rule allowed** can write only inside the project, the temp folder and package caches. They have network access unless you set `"sandbox": {"network": false}`.
+- **Always read-only:** `.teh`, `.claude`, `.agents`, `.git/hooks` and `.git/config`.
+- **Settings:** add writable folders with `"sandbox": {"allowWrite": ["~/other"]}`.
+- **Turning it off:** `--sandbox off`. `--sandbox on` refuses to run without one.
+- **Windows:** no sandbox yet.
 
 Each run is saved as a session. `teh -p -c "..."` continues the most recent one with its full conversation and model. `teh sessions` lists them, and `teh -p -r <id> "..."` continues a specific one.
 

@@ -28,3 +28,6 @@ target/
 
 # Local agent settings
 .claude/settings.local.json
+
+# Sandbox tests need folders outside the temp directory
+.sbx-*/

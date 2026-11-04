@@ -76,17 +76,31 @@ This holds under `acceptEdits` and despite allow rules, so the agent cannot quie
 
 **6. Skill `allowed-tools`:** while a skill is loaded, its `allowed-tools` act as extra allow rules for the rest of that session. User-level skills get this always; project skills only in a trusted folder. Deny rules still win.
 
-**7. The OS sandbox comes in a follow-up change.** Shell commands run with:
-- writes limited to the workspace roots and the temp directory;
-- protected paths read-only;
-- network off unless allowed;
+**7. OS sandbox, at two levels** (amended 2026-11-04, when it was built). Approval decides whether a command runs; the sandbox limits what it can do once it does. The level follows from the approval decision:
 
-with `--sandbox off` as the escape hatch. Until then, the engine is approval-only and the README says so.
+| Level | Applies to | Writes | Network | Reads |
+|---|---|---|---|---|
+| `read-only` | Commands auto-allowed as read-only (step 3) | Temp folder only | Off | Credential folders hidden: `~/.ssh`, `~/.aws`, `~/.gnupg`, `~/.config/gh`, `~/.netrc`, … |
+| `workspace-write` | Commands the user or a rule allowed | Workspace roots, temp folder, package caches (`~/.npm`, `~/.cache`, `~/.cargo/registry`, …) and `sandbox.allowWrite` | On, unless `sandbox.network: false` | Everything except paths in `Read(...)` deny rules |
+
+- **Protected at both levels:** `.teh`, `.claude`, `.agents`, `.git/hooks` and `.git/config` inside each workspace root stay read-only. Hooks and config would run code on the user's next git command. The rest of `.git` stays writable, so an approved `git commit` works.
+- **Platforms:** macOS Seatbelt (`sandbox-exec` with a generated profile) and Linux bubblewrap (`--ro-bind / /` plus writable binds, `--unshare-net`). Windows has none yet (ADR-0013).
+- **Modes:** `--sandbox auto|on|off` (or `TEH_SANDBOX`, or `sandbox.enabled` in settings).
+  - `auto`, the default, uses the sandbox when one works and warns when it can't.
+  - `on` refuses to run without it.
+  - Bypass mode does not turn the sandbox off.
+- **Untrusted projects** can only make the sandbox stricter: turn it on, or turn the network off.
+- **Changes from the original proposal:**
+  - Network is on for approved commands. The user already approved the command, and blocking `npm install` or `git push` after approval only adds friction.
+  - The real gain is at the read-only level. It makes classifier mistakes, and repo-configured git pagers or fsmonitor hooks, harmless for the commands that never asked.
 
 ## Consequences
 - **Fewer prompts.** `ls`, `git status`, `grep -r foo src` and `npm test && git diff` (with `Bash(npm test:*)` allowed) no longer ask. Anything the parser doesn't understand still asks, so the list can grow safely over time.
 - **A regression corpus is needed.** The read-only classifier and the parser need a table of known-safe and known-bypass commands, and every reported bypass becomes a test case.
-- **Residual risk from repo configuration.** Some "read-only" programs can run commands configured by the repo itself: git's `core.fsmonitor`, `core.pager` and `diff.external`, and `textconv` filters. A malicious repo could use these. Workspace trust and the sandbox (step 7) are the defences, and this ADR does not claim more.
+- **Residual risk from repo configuration.** Some "read-only" programs can run commands configured by the repo itself: git's `core.fsmonitor`, `core.pager` and `diff.external`, and `textconv` filters. A malicious repo could use these. Under the read-only sandbox such a command still cannot write outside temp, reach the network or read credentials. Without a sandbox (Windows, or Linux without bubblewrap), only workspace trust stands in the way.
+- **Known sandbox gaps:**
+  - On Linux, a protected folder that doesn't exist yet can be created. bubblewrap can only re-mount existing paths; Seatbelt blocks creation too.
+  - Approved commands keep the network, so an approved command could still send data out. A domain allow-list via a proxy is future work.
 - **Path-like arguments are judged by their text.** `cat ../secret` asks; `cat foo` is assumed to be inside the workspace.
 - **Revisit when:**
   - the sandbox lands, at which point read-only classification could relax for sandboxed commands;

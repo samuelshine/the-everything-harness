@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type AgentEvent, type AgentOptions, runAgent } from "../src/agent";
+import { parseRules } from "../src/permissions";
 import { callTool, FakeProvider, type FakeTurn, say } from "../src/providers/fake";
 import { type SessionEvent, SessionLog } from "../src/session";
 import { builtinTools } from "../src/tools";
@@ -216,6 +217,24 @@ describe("runAgent", () => {
     expect(events).toContainEqual(
       expect.objectContaining({ type: "approval", behavior: "allow", reason: "read-only command" }),
     );
+  });
+
+  test("read-only commands run in the read-only sandbox, allowed ones in workspace-write", async () => {
+    const levels: string[] = [];
+    const sandbox = {
+      kind: "seatbelt" as const,
+      wrap: (argv: string[], level: string) => {
+        levels.push(level);
+        return argv;
+      },
+      describe: () => "",
+    };
+    const { go } = setup(
+      [callTool("Bash", { command: "ls" }), callTool("Bash", { command: "touch made.txt" }), say("ok")],
+      { sandbox, permissions: { mode: "default", allow: parseRules(["Bash(touch:*)"]), deny: [] } },
+    );
+    await go();
+    expect(levels).toEqual(["read-only", "workspace-write"]);
   });
 
   test("lists skills, loads one with the Skill tool, and reads its files without asking", async () => {

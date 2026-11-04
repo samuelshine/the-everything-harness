@@ -12,6 +12,7 @@ export * from "./providers/ollama";
 export type * from "./providers/provider";
 export * from "./readonly";
 export * from "./router";
+export * from "./sandbox";
 export * from "./session";
 export * from "./settings";
 export * from "./shell";
