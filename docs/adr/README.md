@@ -13,7 +13,7 @@ These decisions are open, with the research's current lean. Sources are in [synt
 |---|---|---|
 | [0001](0001-language-runtime-and-distribution.md) (Accepted) | Language/runtime and distribution | TypeScript on Bun, compiled to a single binary; engine/TUI split with a language-neutral event protocol |
 | [0002](0002-provider-layer.md) (Accepted) | Provider layer | Own thin adapters over official SDKs with an item-based model: `anthropic`, `openai` (API key + ChatGPT plan), `openai-compatible`, native `ollama`, `fake` for tests; capability registry from models.dev + probes; cost per auth route |
-| 0003 | Permission and sandbox model | Sandbox mode x approval mode, plus deny→ask→allow rules over a parsed shell AST |
+| [0003](0003-permission-and-sandbox-model.md) (Proposed) | Permission and sandbox model | Approval rules (Claude Code syntax) matched per parsed simple command; conservative read-only classifier; protected paths; workspace trust for project allow rules; OS sandbox (Seatbelt/bubblewrap) underneath in a follow-up |
 | [0004](0004-sessions-and-checkpoints.md) (Accepted) | Session storage and checkpoints | Append-only JSONL event tree per session in `~/.teh/projects/`; shadow-git worktree snapshot per turn (covers bash); rewind asks first; 30-day retention |
 | 0005 | TUI rendering | Inline differential renderer by default; alternate screen opt-in |
 | 0006 | Memory backend | Files and grep first; pluggable store behind a memory tool |
