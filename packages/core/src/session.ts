@@ -128,6 +128,8 @@ export type LoadedSession = SessionSummary & {
   // The conversation, ready to send again: user messages, assistant items and tool results.
   items: Item[];
   points: RewindPoint[];
+  // Output style of the latest run, so resuming keeps it (ADR-0015).
+  outputStyle?: string;
 };
 
 export type RewindScope = "both" | "conversation" | "code";
@@ -160,6 +162,7 @@ function replay(events: SessionEvent[]) {
   const states = new Map<string, Node | null>();
   let current: Node | null = null;
   let model: string | undefined;
+  let outputStyle: string | undefined;
   let firstPrompt = "";
   let prompts = 0;
   let promptText = "";
@@ -170,8 +173,10 @@ function replay(events: SessionEvent[]) {
   for (const ev of events) {
     const data = (ev.data ?? {}) as Record<string, unknown>;
     let item: Item | undefined;
-    if (ev.type === "session_start") model = `${data.provider}:${data.model}`;
-    else if (ev.type === "user_message") {
+    if (ev.type === "session_start") {
+      model = `${data.provider}:${data.model}`;
+      outputStyle = typeof data.outputStyle === "string" ? data.outputStyle : undefined;
+    } else if (ev.type === "user_message") {
       const text = String(data.text ?? "");
       if (!prompts) firstPrompt = text;
       prompts++;
@@ -213,7 +218,7 @@ function replay(events: SessionEvent[]) {
       if (next?.sha) p.sha = next.sha;
     }
   }
-  return { states, current, model, firstPrompt, prompts, points };
+  return { states, current, model, outputStyle, firstPrompt, prompts, points };
 }
 
 // Replays a session file into its conversation and rewind points.
@@ -230,6 +235,7 @@ export function loadSession(path: string): LoadedSession {
     lastEventId: events.at(-1)?.id ?? null,
     items: closeDanglingCalls(materialise(r.current)),
     points: r.points,
+    ...(r.outputStyle ? { outputStyle: r.outputStyle } : {}),
   };
 }
 

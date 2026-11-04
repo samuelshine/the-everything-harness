@@ -61,7 +61,7 @@ export function loadSkills(tehHome: string, projectRoot: string, home = homedir(
     }
     if (root.agentsDir) continue; // .agents/ holds skills only (Agent Skills spec)
     const commands = join(root.base, "commands");
-    for (const f of files(commands)) {
+    for (const f of markdownFiles(commands)) {
       const s = parseFile(f, "command", root.source, problems);
       if (s) add(s);
     }
@@ -216,7 +216,7 @@ function subdirs(dir: string): string[] {
     });
 }
 
-function files(dir: string): string[] {
+export function markdownFiles(dir: string): string[] {
   if (!existsSync(dir)) return [];
   return readdirSync(dir)
     .filter((n) => n.endsWith(".md"))

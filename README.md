@@ -68,6 +68,13 @@ Shell commands also run in an OS sandbox on macOS (Seatbelt) and Linux (bubblewr
 - **Turning it off:** `--sandbox off`. `--sandbox on` refuses to run without one.
 - **Windows:** no sandbox yet.
 
+Output styles change how `teh` works and replies for a whole session. Pick one with `--output-style <name>`, or set `"outputStyle"` in settings:
+- `explanatory` adds short "Insight" notes on why the code is shaped the way it is;
+- `learning` hands you small key pieces to write, marked `TODO(human)`, and then reviews them;
+- your own `~/.teh/output-styles/<name>.md` or `.claude/output-styles/<name>.md` files work too, including Claude Code's.
+
+`teh styles` lists them.
+
 Each run is saved as a session. `teh -p -c "..."` continues the most recent one with its full conversation and model. `teh sessions` lists them, and `teh -p -r <id> "..."` continues a specific one.
 
 Before a run changes anything, `teh` snapshots the project into a separate shadow git repository under `~/.teh` (ADR-0004). It never touches your own `.git`. This covers changes made by shell commands too.

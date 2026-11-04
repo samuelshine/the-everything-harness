@@ -65,7 +65,11 @@ The router never invokes a skill. It adds one line to the system prompt for that
 
 Why not a small chat model alone: picking one of dozens of options is classification. Embeddings do it faster and more consistently, and very small chat models tend to invent names or break the output format. The small model is used only where it adds judgement: confirming a short list.
 
-**Output styles.** An output style replaces the tone and format section of the base system prompt and keeps the coding and safety instructions, unless `keep-coding-instructions: false` is set. Selected with `--output-style` or the `outputStyle` setting.
+**Output styles.** An output style replaces the response-format part of the base system prompt. Selected with `--output-style` or the `outputStyle` setting (project over user); a resumed session keeps its style.
+- **Coding guidance:** dropped unless the style sets `keep-coding-instructions: true`. *Amended 2026-11-04 when built:* this follows Claude Code's default, so styles written for it behave the same. The draft above had the opposite default.
+- **Safety guidance always stays:** don't retry denied actions unchanged, and don't invent results.
+- **Built-in styles:** `default`, `explanatory` (adds "Insight" notes about why the code is shaped as it is) and `learning` (the user writes small key pieces at `TODO(human)` markers). The names match Claude Code's; the text is teh's own.
+- **Precedence:** a user file can replace a built-in style, but a project file can replace neither a built-in nor a user style.
 
 **Thinking patterns.** Effort and reasoning settings belong to the model policy (ADR-0014): roles carry an effort level. A skill or style can ask for a role, never for a raw model id.
 

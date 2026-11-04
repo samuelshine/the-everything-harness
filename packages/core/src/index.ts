@@ -17,5 +17,6 @@ export * from "./session";
 export * from "./settings";
 export * from "./shell";
 export * from "./skills";
+export * from "./styles";
 export * from "./tools";
 export * from "./types";
