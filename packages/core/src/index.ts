@@ -11,5 +11,6 @@ export * from "./providers/fake";
 export * from "./providers/ollama";
 export type * from "./providers/provider";
 export * from "./session";
+export * from "./skills";
 export * from "./tools";
 export * from "./types";

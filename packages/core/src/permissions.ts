@@ -45,6 +45,8 @@ export function decide(tool: string, access: Access, config: PermissionConfig, c
   if (access.kind === "read") {
     if (access.paths.every((p) => insideWorkspace(p, ctx)))
       return { behavior: "allow", reason: "read inside workspace" };
+    if (access.paths.every((p) => insideWorkspace(p, ctx, [...ctx.workspaceRoots, ...(ctx.readRoots ?? [])])))
+      return { behavior: "allow", reason: "read inside a skill folder" };
     return { behavior: config.mode === "bypassPermissions" ? "allow" : "ask", reason: "read outside the workspace" };
   }
 

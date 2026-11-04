@@ -1,4 +1,5 @@
 // Argument parsing and dispatch, kept free of process globals so it can be tested.
+import { homedir } from "node:os";
 import { parseArgs } from "node:util";
 import {
   type AgentEvent,
@@ -7,19 +8,23 @@ import {
   CheckpointError,
   CheckpointStore,
   createProvider,
+  expandSkill,
   findProjectRoot,
   findSession,
   type LoadedSession,
   listSessions,
+  loadSkills,
   PERMISSION_MODES,
   type PermissionMode,
   type Provider,
   ProviderError,
   parseModelRef,
   parseRules,
+  parseSlash,
   type RestorePlan,
   runAgent,
   SessionLog,
+  similarNames,
   tehHome,
   VERSION,
 } from "@everything-harness/core";
@@ -70,6 +75,7 @@ Commands:
       --code-only               Restore files only
       --conversation-only       Restore the conversation only
       --session <id>            Rewind another session (see \`teh sessions\`)
+  skills                        List skills and commands; run one with teh -p "/name args"
   sessions                      List this project's sessions, newest first
   checkpoints                   List file snapshots taken before each run changed anything
   undo                          Put files back as they were before the last run that changed them
@@ -97,6 +103,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   if (positionals[0] === "models") return listModels(io, makeProvider);
   if (positionals[0] === "checkpoints") return listCheckpoints(io);
   if (positionals[0] === "sessions") return printSessions(io);
+  if (positionals[0] === "skills") return printSkills(io);
   if (positionals[0] === "rewind") {
     if (v["code-only"] && v["conversation-only"]) return usageError(io, "choose --code-only or --conversation-only");
     return rewind(io, {
@@ -133,11 +140,27 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   const maxTurns = v["max-turns"] === undefined ? 50 : Number(v["max-turns"]);
   if (!Number.isInteger(maxTurns) || maxTurns < 1) return usageError(io, "--max-turns must be a positive integer");
 
-  const prompt = positionals.join(" ").trim() || (await io.stdin())?.trim();
-  if (!prompt) return usageError(io, "no prompt given");
+  const typed = positionals.join(" ").trim() || (await io.stdin())?.trim();
+  if (!typed) return usageError(io, "no prompt given");
 
   const root = findProjectRoot(io.cwd);
   const home = tehHome(io.env);
+  const { skills, problems } = loadSkills(home, root, userHome(io));
+  for (const p of problems) io.err(`teh: warning: skipped ${p.path}: ${p.message}\n`);
+  // "/name args" runs a skill or command (ADR-0015).
+  let prompt = typed;
+  const slash = parseSlash(typed);
+  if (slash) {
+    const skill = skills.find((s) => s.name === slash.name && s.userInvocable);
+    if (!skill) {
+      const near = similarNames(slash.name, skills);
+      return usageError(
+        io,
+        `no skill or command named /${slash.name}${near.length ? `; did you mean ${near.map((n) => `/${n}`).join(", ")}?` : ""}\n  \`teh skills\` lists them`,
+      );
+    }
+    prompt = expandSkill(skill, slash.args);
+  }
   let resumed: LoadedSession | undefined;
   if (v.continue && v.resume) return usageError(io, "use either --continue or --resume, not both");
   if (v.continue) {
@@ -200,6 +223,9 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
         onEvent(e);
       },
       ...(resumed ? { history: resumed.items } : {}),
+      ...(slash ? { slash } : {}),
+      skills,
+      skillListingChars: Math.max(4000, Math.round((probe.contextWindow ?? 0) * 0.04)),
       checkpoint: async ({ first, title }) =>
         (await store.snapshot(first ? "turn" : "step", session.id, first ? prompt : title)).sha,
     });
@@ -422,5 +448,30 @@ function printSessions(io: Io): number {
     const n = `${s.prompts} prompt${s.prompts === 1 ? "" : "s"}`;
     io.out(`  ${s.id.slice(0, 18)}  ${when(s.updated)}  ${n.padEnd(10)}  ${(s.model ?? "").padEnd(22)}  ${label}\n`);
   }
+  return 0;
+}
+
+// The home directory skills are read from, overridable for tests through HOME.
+const userHome = (io: Io) => io.env.HOME || io.env.USERPROFILE || homedir();
+
+function printSkills(io: Io): number {
+  const root = findProjectRoot(io.cwd);
+  const { skills, problems } = loadSkills(tehHome(io.env), root, userHome(io));
+  if (skills.length === 0 && problems.length === 0) {
+    io.out(
+      "No skills or commands found.\nAdd one at ~/.teh/skills/<name>/SKILL.md or .claude/skills/<name>/SKILL.md (Claude Code skills work as they are).\n",
+    );
+    return 0;
+  }
+  if (skills.length) io.out('Skills and commands (run one with: teh -p "/name args"):\n');
+  for (const s of skills) {
+    const how = s.kind === "command" ? "command" : s.modelInvocable ? "skill" : "skill, /name only";
+    const usage = s.argumentHint ? `/${s.name} ${s.argumentHint}` : `/${s.name}`;
+    const desc = s.description.replace(/\s+/g, " ");
+    io.out(
+      `  ${usage.padEnd(28)} ${`${s.source} ${how}`.padEnd(24)} ${desc.length > 70 ? `${desc.slice(0, 69)}…` : desc}\n`,
+    );
+  }
+  for (const p of problems) io.out(`  skipped ${p.path}: ${p.message}\n`);
   return 0;
 }
