@@ -25,3 +25,4 @@ These decisions are open, with the research's current lean. Sources are in [synt
 | 0012 | Telemetry backend | To decide before the first public release |
 | 0013 | Windows sandbox | Not yet researched |
 | [0014](0014-model-policy.md) (Accepted) | Model policy (routing) | Roles on by default; triage and escalation opt-in until evals beat one mid-tier model; boundaries only; escalation asks first; pins win |
+| [0015](0015-skills-commands-and-output-styles.md) (Proposed) | Skills, slash commands, output styles, skill routing | Agent Skills spec + Claude Code command/style files, one loader, user level wins; `/name` deterministic; `Skill` tool with a listing budget; opt-in embedding pre-router with optional small-model confirm |
