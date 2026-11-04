@@ -32,7 +32,7 @@ const SAFETY = `- Some actions need the user's approval. If one is denied, do no
 const FORMAT = "- When you are done, reply with a short summary of what you did and anything the user should check.";
 
 function basePrompt(style: PromptEnv["style"]): string {
-  if (!style || !style.body) return `${IDENTITY}\n\n${CODING}\n${SAFETY}\n${FORMAT}`;
+  if (!style?.body) return `${IDENTITY}\n\n${CODING}\n${SAFETY}\n${FORMAT}`;
   const head = style.keepCodingInstructions
     ? `${IDENTITY}\n\n${CODING}\n${SAFETY}`
     : `${IDENTITY}\n\nAlways:\n${SAFETY}`;
