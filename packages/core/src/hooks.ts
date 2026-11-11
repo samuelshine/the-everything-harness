@@ -188,11 +188,12 @@ export class HookRunner {
     } catch (e) {
       return { hook, code: -1, stdout: "", stderr: `could not start: ${(e as Error).message}`, timedOut: false };
     }
-    let timedOut = false;
-    const timer = setTimeout(() => {
-      timedOut = true;
-      p.kill();
-    }, timeoutMs);
+    // On timeout, stop waiting at once: a child of the shell can keep the pipes open after the
+    // shell itself is killed (seen on Windows).
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<"timeout">((done) => {
+      timer = setTimeout(() => done("timeout"), timeoutMs);
+    });
     const onAbort = () => p.kill();
     this.opts.signal?.addEventListener("abort", onAbort);
     try {
@@ -203,12 +204,18 @@ export class HookRunner {
       } catch {
         // The hook may exit without reading its input.
       }
-      const [stdout, stderr, code] = await Promise.all([
+      const done = Promise.all([
         new Response(p.stdout as ReadableStream).text(),
         new Response(p.stderr as ReadableStream).text(),
         p.exited,
       ]);
-      return { hook, code, stdout, stderr, timedOut };
+      const r = await Promise.race([done, timeout]);
+      if (r === "timeout") {
+        p.kill();
+        return { hook, code: -1, stdout: "", stderr: "", timedOut: true };
+      }
+      const [stdout, stderr, code] = r;
+      return { hook, code, stdout, stderr, timedOut: false };
     } finally {
       clearTimeout(timer);
       this.opts.signal?.removeEventListener("abort", onAbort);
