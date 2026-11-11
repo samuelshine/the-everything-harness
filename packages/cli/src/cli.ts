@@ -26,6 +26,7 @@ import {
   isTrusted,
   type LoadedSession,
   listSessions,
+  loadModelScores,
   loadSettings,
   loadSkills,
   loadStyles,
@@ -316,6 +317,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   let modelSpec =
     v.model ?? resumed?.model ?? io.env.TEH_MODEL ?? startSettings.model.project ?? startSettings.model.user;
   let installed: ModelInfo[] | undefined;
+  const scores = loadModelScores(home);
   let autoReason: string | undefined;
   if (!modelSpec) {
     try {
@@ -327,15 +329,15 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       return 2;
     }
     const sorted = triage(typed, { planMode: mode === "plan" });
-    const choice = chooseModel(installed, sorted.tier);
+    const choice = chooseModel(installed, sorted.tier, scores);
     if (!choice) {
       io.err(
         "teh: no model selected, and no installed model supports tool calling\n  fix: `ollama pull qwen2.5:14b`, or pass --model ollama:<name>; `teh models` lists local models\n",
       );
       return 2;
     }
-    modelSpec = `ollama:${choice.id}`;
-    autoReason = `${sorted.tier}: ${sorted.reason}`;
+    modelSpec = `ollama:${choice.model.id}`;
+    autoReason = `${sorted.tier}: ${sorted.reason}${choice.basis === "measured" ? "; best measured for this size" : ""}`;
   }
 
   const mcpPlan = planMcp(io, v["mcp-config"] ?? [], v["strict-mcp-config"] ?? false);
@@ -362,7 +364,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       (await localModels(makeProvider, installed).then(async (labels) => {
         if (!labels.length) return undefined;
         const list = installed ?? (await makeProvider("ollama").listModels());
-        const id = chooseModel(list, "S")?.id;
+        const id = chooseModel(list, "S", scores)?.model.id;
         return id ? `ollama:${id}` : undefined;
       })) ??
       modelSpec;
@@ -453,7 +455,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
           ? {
               pickModel: async (first: string, planMode: boolean) => {
                 const sorted = triage(first, { planMode });
-                const id = chooseModel(installed, sorted.tier)?.id ?? ref.model;
+                const choice = chooseModel(installed, sorted.tier, scores);
+                const id = choice?.model.id ?? ref.model;
                 const chosen = makeProvider("ollama");
                 const info = await chosen.probe(id);
                 return {
@@ -461,7 +464,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
                   model: id,
                   label: `ollama:${id}`,
                   ...(info.contextWindow ? { contextWindow: info.contextWindow } : {}),
-                  reason: `${sorted.tier}: ${sorted.reason}`,
+                  reason: `${sorted.tier}: ${sorted.reason}${choice?.basis === "measured" ? "; best measured" : ""}`,
                 };
               },
             }

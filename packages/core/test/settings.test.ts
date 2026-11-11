@@ -96,6 +96,9 @@ describe("settings files", () => {
     expect(back.permissions.allow).toEqual(["Read"]);
     writeFileSync(join(teh, "settings.json"), "[1]");
     expect(setUserSetting(teh, "model", "x")).toBe(false);
+    // Claude Code's "model" names its own models; teh ignores it there.
+    write(join(home, ".claude", "settings.json"), { model: "opus" });
+    expect(loadSettings(tempDir(), tempDir(), home).model).toEqual({});
     // Bad values are reported, not used.
     writeFileSync(join(teh, "settings.json"), JSON.stringify({ cleanupPeriodDays: 0, screen: "big" }));
     const bad = loadSettings(teh, tempDir(), home);

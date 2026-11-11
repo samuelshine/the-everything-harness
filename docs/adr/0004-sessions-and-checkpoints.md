@@ -65,7 +65,13 @@ The project key is the git root's absolute path (or the cwd's, outside git), san
 - **Outside a git repo it still works**, because the shadow repo doesn't need one.
 - **Requires a `git` binary.** If git is missing, `teh` falls back to snapshotting only the files its own tools touch, and both `/doctor` and the rewind prompt say that bash changes are not covered.
 
-**Retention.** Sessions and shadow history are kept 30 days by default (`cleanupPeriodDays`, the same setting name as Claude Code, per ADR-0010). Shadow history is pruned with `gc` in the background. `teh sessions rm` deletes a session explicitly.
+**Retention.** Sessions are kept 30 days by default (`cleanupPeriodDays`, the same setting name as Claude Code, per ADR-0010). `teh sessions rm` deletes a session explicitly.
+
+*As built (2026-11-11):*
+- **Sessions:** a session file not written for `cleanupPeriodDays` days is deleted at startup, together with its screen cache (ADR-0018).
+- **Checkpoints are kept unless you ask.** Undo history is shared by every session in a repository, so deleting a session does not delete its checkpoints. `checkpointRetentionDays` (unset by default) prunes older checkpoints, at most once a day.
+- **How pruning works:** the history is one chain, so the checkpoints kept are rewritten onto a new root with the same trees, messages and times. The old ids are recorded in `teh-remap.json`, so rewinds named in session logs still find them. Then `git gc` removes the rest.
+- **Where they are set:** both settings live in user settings and on the `/config` panel.
 
 ## Consequences
 - **Sessions contain sensitive content** (prompts, code, command output). They stay local, are created with owner-only permissions, are never sent anywhere by `teh`, and are never read by telemetry (ADR-0011). Export and share (P1/P2) must redact known secret patterns and show what will be shared before sending.

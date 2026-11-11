@@ -102,8 +102,11 @@ export function loadSettings(tehHome: string, projectRoot: string, home = homedi
       if (d.screen === "fullscreen" || d.screen === "inline") out.screen = d.screen;
       else out.problems.push({ path, message: 'screen must be "fullscreen" or "inline"' });
     }
-    if (typeof d.model === "string" && d.model.trim()) out.model[f.scope] = d.model.trim();
-    else if (d.model !== undefined) out.problems.push({ path, message: "model must be provider:model" });
+    // Claude Code's own "model" ("opus", "sonnet", …) names models teh cannot run, so it is
+    // read only from teh's files.
+    const tehFile = !path.split(/[\\/]/).includes(".claude");
+    if (tehFile && typeof d.model === "string" && d.model.trim()) out.model[f.scope] = d.model.trim();
+    else if (tehFile && d.model !== undefined) out.problems.push({ path, message: "model must be provider:model" });
     const roles = d.roles as { explore?: unknown } | undefined;
     if (typeof roles?.explore === "string" && roles.explore.trim()) out.exploreModel[f.scope] = roles.explore.trim();
     else if (roles?.explore !== undefined) out.problems.push({ path, message: "roles.explore must be provider:model" });
