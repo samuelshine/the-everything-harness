@@ -18,6 +18,7 @@ type OllamaMessage = {
   thinking?: string;
   tool_calls?: { function: { name: string; arguments: unknown } }[];
   tool_name?: string;
+  images?: string[];
 };
 
 type ShowResponse = { capabilities?: string[]; model_info?: Record<string, unknown> };
@@ -62,7 +63,7 @@ export class OllamaProvider implements Provider {
     if (contextWindow < MIN_USEFUL_CTX) {
       notes.push(`${model} has a ${contextWindow}-token window; coding agents need at least ${MIN_USEFUL_CTX}`);
     }
-    return { supportsTools, contextWindow, notes };
+    return { supportsTools, contextWindow, vision: info.capabilities?.includes("vision") ?? false, notes };
   }
 
   async *stream(req: ModelRequest, signal?: AbortSignal): AsyncIterable<StreamEvent> {
@@ -208,7 +209,16 @@ export function toOllamaMessages(system: string, items: Item[]): OllamaMessage[]
     }
     assistant = undefined;
     if (item.kind === "text") out.push({ role: "user", content: item.text });
-    else out.push({ role: "tool", content: item.content, tool_name: item.name });
+    else {
+      out.push({ role: "tool", content: item.content, tool_name: item.name });
+      // Ollama reads images from user messages, so an image a tool returned follows its result.
+      if (item.images?.length)
+        out.push({
+          role: "user",
+          content: `(The image from ${item.name} above.)`,
+          images: item.images.map((i) => i.data),
+        });
+    }
   }
   return out;
 }

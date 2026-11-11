@@ -12,6 +12,8 @@ export type ProbeResult = {
   supportsTools: boolean;
   // The context window the runtime will actually use for our requests.
   contextWindow?: number;
+  // Whether the model accepts images.
+  vision?: boolean;
   notes: string[];
 };
 

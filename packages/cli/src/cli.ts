@@ -451,6 +451,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
             model: r.model,
             label,
             ...(info.contextWindow ? { contextWindow: info.contextWindow } : {}),
+            vision: info.vision ?? false,
             reason: "",
           };
         },
@@ -474,6 +475,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
                   model: id,
                   label: `ollama:${id}`,
                   ...(info.contextWindow ? { contextWindow: info.contextWindow } : {}),
+                  vision: info.vision ?? false,
                   reason: `${sorted.tier}: ${sorted.reason}${choice?.basis === "measured" ? "; best measured" : ""}`,
                 };
               },
@@ -495,6 +497,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
           ...(explore ? { explore } : {}),
           ...(startSettings.autoCompact === false ? { autoCompact: false } : {}),
           ...(webSearch ? { webSearch } : {}),
+          ...(probe.vision ? { vision: true } : {}),
         },
         modelLabel: modelSpec,
         session,
@@ -551,6 +554,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       ...(explore ? { explore } : {}),
       ...(probe.contextWindow ? { contextWindow: probe.contextWindow } : {}),
       ...(startSettings.autoCompact === false ? { autoCompact: false } : {}),
+      ...(probe.vision ? { vision: true } : {}),
       ...(webSearch ? { webSearch } : {}),
       checkpoint: async ({ first, title }) =>
         (await store.snapshot(first ? "turn" : "step", session.id, first ? prompt : title)).sha,

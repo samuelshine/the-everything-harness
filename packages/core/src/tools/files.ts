@@ -4,6 +4,7 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { diffSnippet, plural } from "./diff";
+import { isImage, isPdf, parsePages, readImage, readPdf } from "./media";
 import { loadNotebook, renderNotebook } from "./notebook";
 import { bool, display, int, obj, resolvePath, str, type Tool, type ToolContext, ToolInputError } from "./tool";
 
@@ -21,25 +22,32 @@ export function requireFreshRead(path: string, ctx: ToolContext): string | undef
   return undefined;
 }
 
-type ReadArgs = { path: string; offset: number; limit: number };
+type ReadArgs = { path: string; offset: number; limit: number; pages?: { first: number; last: number } };
 
 export const readTool: Tool<ReadArgs> = {
   spec: {
     name: "Read",
-    description: `Read a text file. Returns lines prefixed with their line numbers. Reads up to ${MAX_LINES} lines; use offset (1-based line) and limit for longer files. A Jupyter notebook (.ipynb) is shown as its cells, with ids and outputs.`,
+    description: `Read a text file. Returns lines prefixed with their line numbers. Reads up to ${MAX_LINES} lines; use offset (1-based line) and limit for longer files. A Jupyter notebook (.ipynb) is shown as its cells, with ids and outputs. Images (PNG, JPEG, GIF, WebP) are shown to you as images when the model supports vision. PDFs are read as text, up to 20 pages at a time (pages: "1-5").`,
     inputSchema: {
       type: "object",
       properties: {
         file_path: { type: "string", description: "Path to the file, absolute or relative to the working directory" },
         offset: { type: "integer", description: "1-based line to start from" },
         limit: { type: "integer", description: "Number of lines to read" },
+        pages: { type: "string", description: 'For PDFs: a page or range, e.g. "3" or "1-5"' },
       },
       required: ["file_path"],
     },
   },
   parse(raw) {
     const o = obj(raw);
-    return { path: str(o, "file_path"), offset: int(o, "offset") ?? 1, limit: int(o, "limit") ?? MAX_LINES };
+    const pages = parsePages(str(o, "pages", true));
+    return {
+      path: str(o, "file_path"),
+      offset: int(o, "offset") ?? 1,
+      limit: int(o, "limit") ?? MAX_LINES,
+      ...(pages ? { pages } : {}),
+    };
   },
   access(a, ctx) {
     const p = resolvePath(a.path, ctx);
@@ -49,6 +57,8 @@ export const readTool: Tool<ReadArgs> = {
     const p = resolvePath(a.path, ctx);
     if (!existsSync(p)) return { content: `file not found: ${display(p, ctx)}`, isError: true };
     if (statSync(p).isDirectory()) return { content: `${display(p, ctx)} is a directory; use Glob`, isError: true };
+    if (isImage(p)) return readImage(p, ctx);
+    if (isPdf(p)) return readPdf(p, a.pages, ctx);
     const buf = readFileSync(p);
     if (buf.subarray(0, 8192).includes(0)) return { content: `${display(p, ctx)} looks binary`, isError: true };
     if (p.endsWith(".ipynb")) {
