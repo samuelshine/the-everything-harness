@@ -92,7 +92,7 @@ export const writeTool: Tool<WriteArgs> = {
     return {
       kind: "write",
       paths: [p],
-      summary: `${existsSync(p) ? "Overwrite" : "Create"} ${display(p, ctx)} (${a.content.split("\n").length} lines)`,
+      summary: `${existsSync(p) ? "Overwrite" : "Create"} ${display(p, ctx)} (${plural(a.content.split("\n").length, "line")})`,
     };
   },
   async run(a, ctx) {

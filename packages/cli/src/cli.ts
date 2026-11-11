@@ -40,6 +40,7 @@ import {
   tehHome,
   VERSION,
 } from "@everything-harness/core";
+import { type TerminalIo, TuiApp } from "@everything-harness/tui";
 import { planMcp, printMcp, startMcp } from "./mcp";
 import { printHooks, printPermissions, runPermissions, SANDBOX_MODES, type SandboxMode, trust } from "./permissions";
 import { rewind } from "./rewind";
@@ -55,20 +56,23 @@ export type Io = {
   confirm?: (question: string) => Promise<boolean>;
   // Ask for a line of text; undefined when there is no terminal.
   ask?: (question: string) => Promise<string | undefined>;
+  // The terminal for the interactive UI; undefined when stdin or stdout is not a terminal.
+  terminal?: () => TerminalIo;
 };
 
 export type Deps = { provider?: (name: string) => Provider };
 
-export const USAGE = `Usage: teh -p [options] [prompt]
+export const USAGE = `Usage: teh [options] [prompt]
+       teh -p [options] [prompt]
        teh models
        teh rewind [point] | teh undo | teh sessions | teh checkpoints | teh restore <id>
        teh skills | teh styles | teh hooks | teh mcp | teh permissions | teh trust
 
-Run one prompt headlessly and print the result. The prompt can also be piped on stdin.
-The interactive terminal UI is not built yet.
+Start the interactive terminal UI, optionally with a first prompt. With -p, run one prompt
+headlessly and print the result; the prompt can also be piped on stdin.
 
 Options:
-  -p, --print                   Run headlessly (required for now)
+  -p, --print                   Run headlessly: one prompt, print the result, exit
   -c, --continue                Continue the most recent session in this project
   -r, --resume <id>             Continue a session by id (or prefix); \`teh sessions\` lists them
   --model <provider:model>      Model to use, e.g. ollama:gemma4:e4b (or set TEH_MODEL; a resumed
@@ -170,12 +174,13 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     if (!positionals[1]) return usageError(io, "restore needs a checkpoint id; `teh checkpoints` lists them");
     return restore(io, positionals[1], v.yes ?? false);
   }
-  if (v.help || (!v.print && positionals.length === 0)) {
+  const interactive = !v.print;
+  if (v.help || (interactive && !io.terminal && positionals.length === 0)) {
     io.out(USAGE);
     return 0;
   }
-  if (!v.print) {
-    io.err("teh: the interactive UI is not built yet; use -p to run headlessly\n");
+  if (interactive && !io.terminal) {
+    io.err("teh: the interactive UI needs a terminal; use -p to run headlessly\n");
     return 2;
   }
 
@@ -188,8 +193,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   const maxTurns = v["max-turns"] === undefined ? 50 : Number(v["max-turns"]);
   if (!Number.isInteger(maxTurns) || maxTurns < 1) return usageError(io, "--max-turns must be a positive integer");
 
-  const typed = positionals.join(" ").trim() || (await io.stdin())?.trim();
-  if (!typed) return usageError(io, "no prompt given");
+  const typed = positionals.join(" ").trim() || (interactive ? "" : ((await io.stdin())?.trim() ?? ""));
+  if (!typed && !interactive) return usageError(io, "no prompt given");
 
   const root = findProjectRoot(io.cwd);
   const home = tehHome(io.env);
@@ -209,7 +214,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   const skills = perms.skills;
   // "/name args" runs a skill or command (ADR-0015).
   let prompt = typed;
-  const slash = parseSlash(typed);
+  // The interactive UI handles "/name" itself.
+  const slash = interactive ? undefined : parseSlash(typed);
   if (slash) {
     const skill = skills.find((s) => s.name === slash.name && s.userInvocable);
     if (!skill) {
@@ -267,7 +273,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     }
     for (const note of probe.notes) io.err(`teh: warning: ${note}\n`);
 
-    const skillRoute = slash ? undefined : await routeSkills(io, routerMode, typed, skills, home, makeProvider);
+    const skillRoute =
+      slash || interactive ? undefined : await routeSkills(io, routerMode, typed, skills, home, makeProvider);
     if (format === "text" && style.style.name !== "default") io.err(`› output style: ${style.style.name}\n`);
     if (skillRoute && format === "text" && skillRoute.chosen.length) {
       const scores = skillRoute.candidates.filter((c) => skillRoute.chosen.includes(c.name));
@@ -288,6 +295,52 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       transcriptPath: session.path,
       env: io.env,
     });
+    if (interactive && io.terminal) {
+      const hooksFor = (s: SessionLog) =>
+        new HookRunner({
+          config: perms.hooks,
+          cwd: io.cwd,
+          projectRoot: root,
+          sessionId: s.id,
+          transcriptPath: s.path,
+          env: io.env,
+        });
+      const app: TuiApp = new TuiApp({
+        terminal: io.terminal(),
+        color: !io.env.NO_COLOR && io.env.TERM !== "dumb",
+        agent: {
+          provider,
+          model: ref.model,
+          cwd: io.cwd,
+          tools,
+          ...(mcp?.instructions.length ? { mcpInstructions: mcp.instructions } : {}),
+          permissions: perms.config,
+          ...(perms.sandbox ? { sandbox: perms.sandbox } : {}),
+          ...(style.style.name !== "default" ? { outputStyle: style.style } : {}),
+          addDirs: v["add-dir"] ?? [],
+          maxTurns,
+          skills,
+          skillListingChars: Math.max(4000, Math.round((probe.contextWindow ?? 0) * 0.04)),
+        },
+        modelLabel: modelSpec,
+        session,
+        newSession: () => new SessionLog(home, root),
+        history: resumed?.items ?? [],
+        resumed: resumed !== undefined,
+        ...(typed ? { initialPrompt: typed } : {}),
+        hooksFor,
+        onNotify: (message) => {
+          const h = app.currentHooks;
+          if (h?.has("Notification")) void h.run({ hook_event_name: "Notification", message });
+        },
+        checkpoint: async ({ first, title }, p) =>
+          (await store.snapshot(first ? "turn" : "step", app.currentSession.id, first ? p : title)).sha,
+      });
+      const code = await app.start();
+      const h = app.currentHooks;
+      if (h?.has("SessionEnd")) await h.run({ hook_event_name: "SessionEnd", reason: "prompt_input_exit" });
+      return code;
+    }
     const onEvent = format === "stream-json" ? streamJson(io) : format === "text" ? text.onEvent : trackDenied(denied);
     if (format === "stream-json") {
       io.out(

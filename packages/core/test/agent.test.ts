@@ -159,11 +159,11 @@ describe("runAgent", () => {
     );
     await go();
     expect(steps).toEqual([
-      { first: true, title: "Create one.txt (1 lines)" },
-      { first: false, title: "Create two.txt (1 lines)" },
+      { first: true, title: "Create one.txt (1 line)" },
+      { first: false, title: "Create two.txt (1 line)" },
     ]);
     expect(readFileSync(join(cwd, "three.txt"), "utf8")).toBe("3");
-    expect(events).toContainEqual({ type: "checkpoint", sha: "sha1", title: "Create one.txt (1 lines)" });
+    expect(events).toContainEqual({ type: "checkpoint", sha: "sha1", title: "Create one.txt (1 line)" });
     const events2 = log();
     const cps = events2.filter((e) => e.type === "checkpoint").map((e) => e.data);
     expect(cps).toMatchObject([
@@ -175,7 +175,7 @@ describe("runAgent", () => {
     expect(events2.find((e) => e.id === at)?.data).toMatchObject({ kind: "tool_result", name: "Write" });
     expect(events2.find((e) => e.type === "checkpoint_title")?.data).toEqual({
       sha: "sha2",
-      title: "Create two.txt (1 lines), Create three.txt (1 lines)",
+      title: "Create two.txt (1 line), Create three.txt (1 line)",
     });
   });
 

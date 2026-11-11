@@ -14,15 +14,23 @@
       "name": "@everything-harness/cli",
       "version": "0.0.0",
       "bin": {
-        "harness": "./src/main.ts",
+        "teh": "./src/main.ts",
       },
       "dependencies": {
         "@everything-harness/core": "workspace:*",
+        "@everything-harness/tui": "workspace:*",
       },
     },
     "packages/core": {
       "name": "@everything-harness/core",
       "version": "0.0.0",
+    },
+    "packages/tui": {
+      "name": "@everything-harness/tui",
+      "version": "0.0.0",
+      "dependencies": {
+        "@everything-harness/core": "workspace:*",
+      },
     },
   },
   "packages": {
@@ -51,6 +59,8 @@
     "@everything-harness/cli": ["@everything-harness/cli@workspace:packages/cli"],
 
     "@everything-harness/core": ["@everything-harness/core@workspace:packages/core"],
+
+    "@everything-harness/tui": ["@everything-harness/tui@workspace:packages/tui"],
 
     "@types/bun": ["@types/bun@1.4.3", "", { "dependencies": { "bun-types": "1.4.3" } }, "sha512-N67Pqy8JXbAY/j0tNraS3V5mubGvc6rrrNDmDCtZLlFzccbUJPDb0tvgUBC5q4m8ybkP93Jcn1QB+RYQ6PvBhw=="],
 

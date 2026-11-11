@@ -1,4 +1,5 @@
 #!/usr/bin/env bun
+import { processTerminal } from "@everything-harness/tui";
 import { run } from "./cli";
 
 const code = await run(process.argv.slice(2), {
@@ -7,6 +8,7 @@ const code = await run(process.argv.slice(2), {
   env: process.env,
   cwd: process.cwd(),
   stdin: async () => (process.stdin.isTTY ? undefined : await Bun.stdin.text()),
+  ...(process.stdin.isTTY && process.stdout.isTTY ? { terminal: processTerminal } : {}),
   ...(process.stdin.isTTY
     ? {
         confirm: async (question: string) => {
