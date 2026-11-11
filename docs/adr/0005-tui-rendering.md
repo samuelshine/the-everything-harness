@@ -1,6 +1,6 @@
 # 0005 — TUI rendering
 
-- **Status:** Proposed
+- **Status:** Proposed. The choice of inline as the default is superseded by ADR-0018; the inline renderer remains as `--inline`.
 - **Date:** 2026-11-11
 - **Deciders:** Samuel Shine
 - **Related research:** `docs/research/10-terminal-harness.md` §2 (B, D) and §7, ADR-0001, ADR-0008; sources [TRM-08], [TRM-16], [TRM-27], [TRM-31], [TRM-32]

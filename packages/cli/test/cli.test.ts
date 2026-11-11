@@ -1,5 +1,14 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  realpathSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callTool, FakeProvider, type FakeTurn, type Provider, say, VERSION } from "@everything-harness/core";
@@ -91,6 +100,73 @@ describe("teh cli", () => {
     // The conversation was saved as a session that -c can continue.
     const sessions = await call(["sessions"], { cwd, home });
     expect(sessions.out).toContain("say hi");
+  });
+
+  test("the UI's session cache expires after 3 days, and --continue still carries the conversation", async () => {
+    const cwd = temp();
+    const home = temp();
+    const ui = async (
+      argv: string[],
+      turns: FakeTurn[],
+      keys: string,
+      until: string,
+      env: Record<string, string> = {},
+    ) => {
+      const vt = new VirtualTerminal(80, 30);
+      const fake = new FakeProvider(turns);
+      const running = run(
+        ["--model", "fake:fake", ...argv],
+        {
+          out: () => {},
+          err: () => {},
+          env: { TEH_HOME: home, HOME: home, NO_COLOR: "1", ...env },
+          cwd,
+          stdin: async () => undefined,
+          terminal: () => vt,
+        },
+        { provider: () => fake as Provider },
+      );
+      for (let i = 0; i < 50 && !vt.text().includes("Ask teh anything"); i++) await Bun.sleep(20);
+      vt.type(keys);
+      for (let i = 0; i < 50 && !vt.text().includes(until); i++) await Bun.sleep(20);
+      const screen = vt.text();
+      vt.type("\x04");
+      expect(await running).toBe(0);
+      return { screen, fake };
+    };
+    await ui([], [say("the answer is 42")], "remember 42\r", "the answer is 42");
+    const cacheDir = join(home, "projects", readdirSync(join(home, "projects"))[0] as string, "cache");
+    const [cacheFile] = readdirSync(cacheDir);
+    expect(cacheFile).toEndWith(".transcript.jsonl");
+
+    // Two days later: the cache is still there and the transcript is redrawn from it.
+    const age = (days: number) => {
+      const t = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+      utimesSync(join(cacheDir, cacheFile as string), t, t);
+    };
+    age(2);
+    const soon = await ui(["--continue"], [say("still 42")], "\x1b[1;5H", "earlier in this session ──");
+    expect(soon.screen).toContain("── earlier in this session ──");
+
+    // Four days later: the cache is deleted, but --continue still sends the whole conversation.
+    age(4);
+    const later = await ui(["--continue"], [say("yes, 42")], "what was it?\r", "yes, 42");
+    expect(existsSync(join(cacheDir, cacheFile as string))).toBe(true); // recreated by this session
+    expect(later.fake.requests[0]?.items.map((i) => (i.kind === "text" ? i.text : i.kind))).toEqual([
+      "remember 42",
+      "the answer is 42",
+      "what was it?",
+    ]);
+    expect(later.screen).toContain("rebuilt from the conversation");
+
+    // A longer cacheRetentionDays in user settings keeps it.
+    writeFileSync(join(home, "settings.json"), JSON.stringify({ cacheRetentionDays: 10 }));
+    age(4);
+    await call(["-p", "--model", "fake:fake", "hi"], { cwd, home, turns: [say("ok")] });
+    expect(existsSync(join(cacheDir, cacheFile as string))).toBe(true);
+    writeFileSync(join(home, "settings.json"), JSON.stringify({ cacheRetentionDays: 3 }));
+    await call(["-p", "--model", "fake:fake", "hi"], { cwd, home, turns: [say("ok")] });
+    expect(existsSync(join(cacheDir, cacheFile as string))).toBe(false);
   });
 
   test("-p without a model explains how to pick one", async () => {

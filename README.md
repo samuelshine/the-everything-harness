@@ -47,13 +47,15 @@ bun run build
 packages/cli/dist/teh models  # list local models and whether they support tools
 packages/cli/dist/teh -p --model ollama:gemma4:e4b "What does this repo do?"
 ```
-Run `teh --model ollama:gemma4:e4b` with no `-p` to work interactively (ADR-0005):
+Run `teh --model ollama:gemma4:e4b` with no `-p` to work interactively (ADR-0005, ADR-0018). The UI takes the whole terminal; `--inline` keeps it in the normal scrollback instead.
 - **Sending:** type a prompt and press Enter. Shift+Enter, Alt+Enter, or `\` then Enter adds a new line. Pasting a block keeps it as one prompt.
 - **While it works:** Esc interrupts. Anything you type is queued and sent when it finishes.
 - **Approvals:** when `teh` needs approval it asks inline. `y` allows once, `a` allows that kind of action for the rest of the session, and `n` refuses.
 - **Modes:** Shift+Tab cycles the permission mode: ask, accept edits, plan.
 - **Commands:** `/help`, `/clear`, `/cost` and `/exit`, plus your skills and commands. `/` shows completions.
+- **Scrolling:** mouse wheel, PgUp/PgDn or Shift+Up/Down. Ctrl+Home and Ctrl+End jump to the start and the end. Hold Shift (Option in some macOS terminals) to select text with the mouse.
 - **Leaving:** Ctrl+D quits. `teh -c` picks the conversation up again.
+- **Session cache:** what the screen showed is saved per session and drawn again when you resume. A cache untouched for 3 days is deleted; set `cacheRetentionDays` in `~/.teh/settings.json` to change that. The conversation itself is kept, so `teh -c` still continues an older session, with a shorter rebuilt view.
 
 `teh` asks before every change by default (ADR-0008). Reading the project and read-only commands such as `ls`, `cat`, `grep`, `sed -n 1,20p` and `git status/log/diff` run without asking. Headless mode cannot ask, so it denies everything else and prints the rule that would allow it:
 - `--permission-mode acceptEdits` allows file edits inside the workspace.
