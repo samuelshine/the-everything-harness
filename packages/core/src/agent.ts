@@ -2,8 +2,9 @@
 // the permission engine, feed results back, and repeat until the model stops.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import type { HookEvent, HookOutcome, HookRunner } from "./hooks";
 import { findProjectRoot, loadInstructions, renderInstructions } from "./instructions";
-import { decide, type PermissionConfig, parseRules, type Rule } from "./permissions";
+import { type Decision, decide, type PermissionConfig, parseRules, type Rule } from "./permissions";
 import { systemPrompt } from "./prompt";
 import type { Provider } from "./providers/provider";
 import { type RouteResult, routerHint } from "./router";
@@ -33,6 +34,8 @@ export type AgentEvent =
   | { type: "tool_result"; id: string; name: string; content: string; isError: boolean }
   | { type: "checkpoint"; sha: string; title: string }
   | { type: "warning"; message: string }
+  // Something a hook wants the person to see: systemMessage, a failure, a blocked prompt.
+  | { type: "hook"; event: HookEvent; message: string }
   | { type: "turn_end"; usage: Usage };
 
 // Asked when the permission engine says "ask". Headless runs answer "deny".
@@ -68,11 +71,15 @@ export type AgentOptions = {
   // Called before the first change of each model turn that changes anything (ADR-0004),
   // so every step can be rewound. `first` marks the run's first. Returns the checkpoint id.
   checkpoint?: (step: { first: boolean; title: string }) => Promise<string>;
+  // Lifecycle hooks (ADR-0016). With `hookSessionStart`, SessionStart fires first with that source.
+  hooks?: HookRunner;
+  hookSessionStart?: "startup" | "resume" | "clear" | "compact";
 };
 
 export type AgentResult = {
   result: string;
-  stopReason: StopReason | "max_turns";
+  // hook_blocked: a UserPromptSubmit hook refused the prompt. hook_stopped: a hook said "continue": false.
+  stopReason: StopReason | "max_turns" | "hook_blocked" | "hook_stopped";
   turns: number;
   usage: Usage;
   items: Item[];
@@ -149,18 +156,54 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     resumed: (opts.history?.length ?? 0) > 0,
   });
 
-  const items: Item[] = [...(opts.history ?? []), { kind: "text", role: "user", text: opts.prompt }];
+  const items: Item[] = [...(opts.history ?? [])];
+  let usage = emptyUsage();
+  let result = "";
+  const maxTurns = opts.maxTurns ?? 50;
+  const finish = (stopReason: AgentResult["stopReason"], turns: number): AgentResult => {
+    log?.append("session_end", { stopReason, turns, usage });
+    return { result, stopReason, turns, usage, items };
+  };
+
+  const hooks = opts.hooks;
+  const report = (event: HookEvent, o: HookOutcome) => reportHook(event, o, emit, log);
+  // Text a hook gives the model goes in as its own message, logged so a resumed session keeps it.
+  const addHookText = (event: HookEvent, text: string) => {
+    const item: Item = { kind: "text", role: "user", text: `${event} hook: ${text}` };
+    items.push(item);
+    log?.append("hook", { event, text: item.text });
+  };
+  if (hooks && opts.hookSessionStart) {
+    const o = await hooks.run(
+      { hook_event_name: "SessionStart", source: opts.hookSessionStart },
+      opts.hookSessionStart,
+    );
+    report("SessionStart", o);
+    for (const c of o.context) addHookText("SessionStart", c);
+    if (o.halt) return finish("hook_stopped", 0);
+  }
+  let promptContext: string[] = [];
+  if (hooks?.has("UserPromptSubmit")) {
+    const o = await hooks.run({ hook_event_name: "UserPromptSubmit", prompt: opts.prompt });
+    report("UserPromptSubmit", o);
+    if (o.halt) return finish("hook_stopped", 0);
+    if (o.block) {
+      emit({ type: "hook", event: "UserPromptSubmit", message: `prompt blocked: ${o.block}` });
+      return finish("hook_blocked", 0);
+    }
+    promptContext = o.context;
+  }
+
+  items.push({ kind: "text", role: "user", text: opts.prompt });
   log?.append("user_message", { text: opts.prompt, ...(opts.slash ? { slash: opts.slash } : {}) });
+  for (const c of promptContext) addHookText("UserPromptSubmit", c);
   if (opts.skillRoute) {
     const hint = routerHint(opts.skillRoute);
     // Sent as its own message so the system prompt (and its cache) stays the same per prompt.
     if (hint) items.push({ kind: "text", role: "user", text: hint });
     log?.append("skill_route", { ...opts.skillRoute, ...(hint ? { hint } : {}) });
   }
-
-  let usage = emptyUsage();
-  let result = "";
-  const maxTurns = opts.maxTurns ?? 50;
+  let stopHookActive = false;
 
   for (let turn = 1; turn <= maxTurns; turn++) {
     let text = "";
@@ -199,13 +242,30 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     if (text) result = text;
 
     if (calls.length === 0) {
-      log?.append("session_end", { stopReason: stop, turns: turn, usage });
-      return { result, stopReason: stop, turns: turn, usage, items };
+      // A Stop hook can send the model back to work, e.g. until the tests pass.
+      if (hooks?.has("Stop") && stop !== "error") {
+        const o = await hooks.run({ hook_event_name: "Stop", stop_hook_active: stopHookActive });
+        report("Stop", o);
+        if (o.halt) return finish("hook_stopped", turn);
+        if (o.block) {
+          stopHookActive = true;
+          addHookText("Stop", o.block);
+          continue;
+        }
+      }
+      return finish(stop, turn);
     }
 
+    let halted: string | undefined;
     for (const call of calls) {
-      const { changed, ...outcome } = await runTool(call, byName, opts, permissions(), ctx, emit, beforeChange);
+      // After a hook stops the run, the remaining calls still get a result, so the
+      // conversation stays valid if it is resumed.
+      const r = halted
+        ? { content: `Not run: ${halted}`, isError: true }
+        : await runTool(call, byName, opts, permissions(), ctx, emit, beforeChange, report);
+      const { changed, halt, ...outcome } = r as Awaited<ReturnType<typeof runTool>>;
       if (changed) step.changes.push(changed);
+      if (halt) halted = halt;
       const item: Item = { kind: "tool_result", callId: call.id, name: call.name, ...outcome };
       items.push(item);
       log?.append("tool_result", item);
@@ -213,10 +273,34 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     // The step's title names everything it changed, once that is known.
     if (step.sha && step.changes.length > 1)
       log?.append("checkpoint_title", { sha: step.sha, title: stepTitle(step.changes) });
+    if (halted) return finish("hook_stopped", turn);
   }
 
-  log?.append("session_end", { stopReason: "max_turns", turns: maxTurns, usage });
-  return { result, stopReason: "max_turns", turns: maxTurns, usage, items };
+  return finish("max_turns", maxTurns);
+}
+
+function reportHook(event: HookEvent, o: HookOutcome, emit: (e: AgentEvent) => void, log: SessionLog | undefined) {
+  for (const message of o.messages) emit({ type: "hook", event, message });
+  if (o.halt) emit({ type: "hook", event, message: `stopped: ${o.halt}` });
+  if (!o.ran) return;
+  log?.append("hook", {
+    event,
+    ran: o.ran,
+    ...(o.block ? { block: o.block } : {}),
+    ...(o.permission ? { permission: o.permission } : {}),
+    ...(o.halt ? { halt: o.halt } : {}),
+    ...(o.messages.length ? { messages: o.messages } : {}),
+  });
+}
+
+// The model's raw arguments as an object, for hook input.
+function rawArgs(args: unknown): unknown {
+  if (typeof args !== "string") return args;
+  try {
+    return JSON.parse(args);
+  } catch {
+    return args;
+  }
 }
 
 async function runTool(
@@ -227,7 +311,8 @@ async function runTool(
   ctx: ToolContext,
   emit: (e: AgentEvent) => void,
   beforeChange: (summary: string) => Promise<void>,
-): Promise<{ content: string; isError: boolean; changed?: string }> {
+  report: (event: HookEvent, o: HookOutcome) => void,
+): Promise<{ content: string; isError: boolean; changed?: string; halt?: string }> {
   const log = opts.session;
   const fail = (content: string) => {
     emit({ type: "tool_result", id: call.id, name: call.name, content, isError: true });
@@ -242,8 +327,19 @@ async function runTool(
 
   let args: unknown;
   let access: Access;
+  let input = rawArgs(call.args);
+  let pre: HookOutcome | undefined;
   try {
     args = tool.parse(call.args);
+    // PreToolUse hooks see the call before the permission check and may replace its input.
+    if (opts.hooks?.has("PreToolUse")) {
+      pre = await opts.hooks.run({ hook_event_name: "PreToolUse", tool_name: call.name, tool_input: input }, call.name);
+      report("PreToolUse", pre);
+      if (pre.updatedInput !== undefined && !pre.block) {
+        input = pre.updatedInput;
+        args = tool.parse(input);
+      }
+    }
     access = tool.access(args, ctx);
   } catch (e) {
     emit({ type: "tool_call", ...call });
@@ -251,9 +347,16 @@ async function runTool(
     throw e;
   }
   emit({ type: "tool_call", ...call, summary: access.summary });
-  log?.append("tool_call", { id: call.id, name: call.name, args: call.args, summary: access.summary });
+  log?.append("tool_call", {
+    id: call.id,
+    name: call.name,
+    args: call.args,
+    summary: access.summary,
+    ...(input !== rawArgs(call.args) ? { hookInput: input } : {}),
+  });
+  if (pre?.halt) return { ...fail(`Not run: ${pre.halt}`), halt: pre.halt };
 
-  const decision = decide(call.name, access, permissions, ctx);
+  const decision = hookDecision(decide(call.name, access, permissions, ctx), pre?.permission);
   let behavior: "allow" | "deny" = decision.behavior === "ask" ? "deny" : decision.behavior;
   let reason = decision.reason;
   if (decision.behavior === "ask") {
@@ -283,6 +386,8 @@ async function runTool(
     });
   }
   if (behavior === "deny") {
+    if (decision.byHook)
+      return fail(`Blocked by a PreToolUse hook: ${pre?.block ?? reason}. Do not retry the same action.`);
     return fail(
       `Permission denied: ${access.summary} (${reason}). Do not retry the same action; continue without it or tell the user what you need.`,
     );
@@ -298,9 +403,47 @@ async function runTool(
     if (e instanceof ProviderError) throw e;
     out = { content: `${call.name} failed: ${(e as Error).message}`, isError: true };
   }
-  const isError = out.isError ?? false;
-  emit({ type: "tool_result", id: call.id, name: call.name, content: out.content, isError });
-  return { content: out.content, isError, ...(changes ? { changed: access.summary } : {}) };
+  let isError = out.isError ?? false;
+  let content = out.content;
+  let halt: string | undefined;
+  if (opts.hooks?.has("PostToolUse")) {
+    const post = await opts.hooks.run(
+      {
+        hook_event_name: "PostToolUse",
+        tool_name: call.name,
+        tool_input: input,
+        tool_response: { content: out.content, is_error: isError },
+      },
+      call.name,
+    );
+    report("PostToolUse", post);
+    // The tool already ran; a "block" from PostToolUse is feedback the model must act on.
+    if (post.block) {
+      content += `\n\nPostToolUse hook feedback:\n${post.block}`;
+      isError = true;
+    }
+    for (const c of post.context) content += `\n\nPostToolUse hook: ${c}`;
+    halt = post.halt;
+  }
+  emit({ type: "tool_result", id: call.id, name: call.name, content, isError });
+  return { content, isError, ...(changes ? { changed: access.summary } : {}), ...(halt ? { halt } : {}) };
+}
+
+// Combine the permission engine's decision with a PreToolUse hook's (ADR-0016). A hook can
+// deny anything, and can turn an allow into an ask. It can turn an ask into an allow, but it
+// never overrides a deny rule or plan mode.
+function hookDecision(
+  d: Decision,
+  hook: { decision: "allow" | "deny" | "ask"; reason: string } | undefined,
+): Decision & { byHook?: boolean } {
+  if (!hook) return d;
+  if (hook.decision === "deny") return { behavior: "deny", reason: `PreToolUse hook: ${hook.reason}`, byHook: true };
+  if (d.behavior === "deny") return d;
+  if (hook.decision === "ask" && d.behavior === "allow")
+    return { behavior: "ask", reason: `PreToolUse hook asks first: ${hook.reason}` };
+  if (hook.decision === "allow" && d.behavior === "ask")
+    return { behavior: "allow", reason: `allowed by PreToolUse hook: ${hook.reason}` };
+  return d;
 }
 
 // "Edit a.ts, Create b.ts and 2 more"
