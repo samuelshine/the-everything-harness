@@ -13,7 +13,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callTool, FakeProvider, type FakeTurn, type Provider, say, VERSION } from "@everything-harness/core";
 import { VirtualTerminal } from "../../tui/test/vt";
-import { type Deps, run, USAGE } from "../src/cli";
+import { type Deps, expandRuleFlags, run, USAGE } from "../src/cli";
 
 const temp = () => realpathSync(mkdtempSync(join(tmpdir(), "teh-cli-")));
 
@@ -951,5 +951,32 @@ describe("teh cli", () => {
     ]);
     const bad = await call(["-p", "--model", "fake:fake", "--skill-router", "embed+confirm", "x"]);
     expect(bad.err).toContain("TEH_SKILL_ROUTER_MODEL");
+  });
+});
+
+describe("--allowedTools", () => {
+  test("takes several rules, as in Claude Code, and stops at the prompt", () => {
+    expect(
+      expandRuleFlags(["-p", "--allowedTools", "Edit", "Bash(npm test:*)", "WebFetch(domain:docs.rs)", "fix the bug"]),
+    ).toEqual([
+      "-p",
+      "--allowedTools",
+      "Edit",
+      "--allowedTools",
+      "Bash(npm test:*)",
+      "--allowedTools",
+      "WebFetch(domain:docs.rs)",
+      "fix the bug",
+    ]);
+    expect(expandRuleFlags(["--disallowedTools", "Read(.env)", "mcp__gh__*", "--", "Edit"])).toEqual([
+      "--disallowedTools",
+      "Read(.env)",
+      "--disallowedTools",
+      "mcp__gh__*",
+      "--",
+      "Edit",
+    ]);
+    // A single word that is not a tool name is the prompt.
+    expect(expandRuleFlags(["--allowedTools", "Edit", "Refactor"])).toEqual(["--allowedTools", "Edit", "Refactor"]);
   });
 });

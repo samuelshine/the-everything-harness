@@ -4,6 +4,7 @@
 // brings the full conversation back.
 import type { Provider } from "./providers/provider";
 import type { SessionLog } from "./session";
+import { formatTodos, latestTodos } from "./tools/todo";
 import { addUsage, emptyUsage, type Item, type ToolSpec, type Usage } from "./types";
 
 // Compact automatically once a request would fill this much of the window. Ollama refuses a
@@ -109,7 +110,13 @@ function userPrompts(items: Item[]): string[] {
   return items
     .filter((i): i is Extract<Item, { kind: "text" }> => i.kind === "text" && i.role === "user")
     .map((i) => i.text)
-    .filter((t) => !t.startsWith(COMPACT_MARKER) && !t.startsWith("(Skill router:") && !/^\w+ hook: /.test(t));
+    .filter(
+      (t) =>
+        !t.startsWith(COMPACT_MARKER) &&
+        !t.startsWith("(Skill router:") &&
+        !t.startsWith("[teh]") &&
+        !/^\w+ hook: /.test(t),
+    );
 }
 
 function changedFiles(items: Item[]): string[] {
@@ -139,6 +146,19 @@ function earlierPrompts(items: Item[]): string[] {
   return m?.[1] ? m[1].split("\n").map((l) => l.replace(/^- /, "")) : [];
 }
 
+const TODO_HEADING = "Your to-do list ([x] done, [~] in progress, [ ] pending):";
+
+function earlierTodos(items: Item[]): string | undefined {
+  const first = items[0];
+  if (first?.kind !== "text" || !first.text.startsWith(COMPACT_MARKER)) return undefined;
+  const at = first.text.indexOf(`${TODO_HEADING}\n`);
+  if (at < 0) return undefined;
+  const lines = first.text.slice(at + TODO_HEADING.length + 1).split("\n");
+  const end = lines.findIndex((l) => !/^\[[ x~]\] /.test(l));
+  const list = end < 0 ? lines : lines.slice(0, end);
+  return list.length ? list.join("\n") : undefined;
+}
+
 // The message that stands in for the compacted part. Its deterministic parts (the user's
 // requests and the files changed) do not depend on the summary being good.
 export function summaryMessage(summary: string, old: Item[], kept: Item[]): string {
@@ -147,6 +167,9 @@ export function summaryMessage(summary: string, old: Item[], kept: Item[]): stri
   const files = changedFiles(old);
   const latestKept = userPrompts(kept).length > 0;
   const latest = userPrompts(old).at(-1);
+  // The to-do list, when its latest version is in the compacted part (or an earlier summary).
+  const listed = latestTodos(old);
+  const todos = latestTodos(kept) ? undefined : listed ? formatTodos(listed) : earlierTodos(old);
   return [
     COMPACT_MARKER,
     "",
@@ -160,6 +183,7 @@ export function summaryMessage(summary: string, old: Item[], kept: Item[]): stri
         ]
       : []),
     ...(files.length ? ["", `Files changed in the compacted part: ${files.join(", ")}`] : []),
+    ...(todos ? ["", TODO_HEADING, todos] : []),
     ...(!latestKept && latest ? ["", `The user's latest request, verbatim:\n${latest}`] : []),
     "",
     "File contents from before this point are no longer in context: read a file again before editing it.",

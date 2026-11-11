@@ -397,6 +397,41 @@ describe("TuiApp", () => {
     expect(loadSession(session.path).items.length).toBe(3);
   });
 
+  test("the to-do list shows as a checklist, names the current step on the spinner, and /todos shows it again", async () => {
+    let release: () => void = () => {};
+    const gate = new Promise<void>((r) => {
+      release = r;
+    });
+    const todos = [
+      { content: "Write tests", status: "completed" },
+      { content: "Fix the bug", status: "in_progress", activeForm: "Fixing the bug" },
+      { content: "Update docs", status: "pending" },
+    ];
+    const provider: Provider = {
+      id: "fake",
+      listModels: async () => [],
+      probe: async () => ({ supportsTools: true, notes: [] }),
+      async *stream(req: ModelRequest): AsyncIterable<StreamEvent> {
+        if (req.items.at(-1)?.kind === "tool_result") {
+          await gate;
+          yield* say("all done");
+          return;
+        }
+        yield* callTool("TodoWrite", { todos });
+      },
+    };
+    const { vt, type } = setup(provider);
+    await type("do the work\r");
+    expect(vt.text()).toContain(
+      "◆ Update Todos (1/3 done)\n  ⎿  ☒ Write tests\n     ◼ Fix the bug\n     ☐ Update docs",
+    );
+    expect(vt.text()).toContain("Fixing the bug… (");
+    release();
+    await settle();
+    await type("/todos\r");
+    expect(vt.text()).toContain("◆ Todos\n  ⎿  ☒ Write tests");
+  });
+
   test("an edit shows a diff with line numbers, removed and added lines apart", async () => {
     const provider = new FakeProvider([
       callTool("Read", { file_path: "a.txt" }),

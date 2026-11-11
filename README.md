@@ -62,6 +62,10 @@ Run `teh` with no `-p` to work interactively (ADR-0005, ADR-0018). The UI takes 
   - **You:** your default model and start mode, and how long screen caches, sessions and undo checkpoints are kept, saved to `~/.teh/settings.json`.
 - **Explore subagents:** for a broad search, the model can hand the job to a read-only subagent with its own context, usually on a smaller model. Only its report comes back, so the search does not fill your conversation (ADR-0019). It shows as `◆ Explore(...)` with a `Done` line. Set `"roles": {"explore": "ollama:<name>"}` to choose its model, or `"off"`.
 - **Long conversations:** when a request would fill 75% of the model's context window, `teh` has the model summarise the older part and keeps the recent turns word for word, so long tasks keep going on small local models (ADR-0020). Your requests and the files changed are kept as written, not left to the summary. `/compact [what to focus on]` does it on demand. The full conversation stays in the session log, so `teh rewind` to a point before a compaction brings it back. Set `"autoCompact": false` to turn it off.
+- **Tools:** besides Read, Write, Edit, Glob, Grep and Bash, the model has:
+  - `TodoWrite`, a to-do list for multi-step work. It shows as a checklist, the item in progress names the spinner, and `/todos` shows it again. If the model stops with items unfinished, `teh` reminds it (twice at most), and compaction keeps the list.
+  - `WebSearch` (DuckDuckGo by default, no key needed; set `"webSearch": {"engine": "searxng", "url": "…"}` or `{"engine": "brave"}` with `BRAVE_SEARCH_API_KEY` in `~/.teh/settings.json`) and `WebFetch`, which turns a page into Markdown and has a helper model (the explore model) read it for the question asked, so a long page doesn't fill your conversation. Both ask before reaching the network unless a rule allows them (see below), and everything fetched is marked as untrusted.
+  - `NotebookEdit` for Jupyter notebooks; `Read` shows a notebook as cells with their outputs.
 - **Side questions:** `/btw <question>` answers from the conversation so far without adding to it, even while `teh` is working.
 - **What you see:** replies start with `●`. Tool calls start with `◆`, and edits show a numbered diff with removed lines in red and added lines in green.
 - **Scrolling:** mouse wheel, PgUp/PgDn or Shift+Up/Down. Ctrl+Home and Ctrl+End jump to the start and the end. Hold Shift (Option in some macOS terminals) to select text with the mouse.
@@ -73,6 +77,7 @@ Run `teh` with no `-p` to work interactively (ADR-0005, ADR-0018). The UI takes 
 - `--permission-mode acceptEdits` allows file edits inside the workspace.
 - `--allowedTools 'Bash(npm test:*)'` allows `npm test` with any arguments. `'Bash(npm test)'` allows only that exact command.
 - `--disallowedTools 'Bash(git push:*)' 'Read(.env)'` blocks those. Deny rules win over everything, including `bypassPermissions`.
+- `--allowedTools 'WebFetch(domain:docs.rs)'` lets the model fetch from that site (`domain:*.rust-lang.org` covers subdomains), and `WebSearch` lets it search. Network requests ask first in every mode, since they can carry data out.
 
 Rules apply to each part of a command: `npm test && git status` runs with only `Bash(npm test:*)` allowed, but `npm test; rm -rf ~` still asks. A command the parser can't read fully, such as one with `$(…)` or a here-doc, always asks (ADR-0003).
 

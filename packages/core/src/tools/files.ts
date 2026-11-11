@@ -4,16 +4,17 @@
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
 import { diffSnippet, plural } from "./diff";
+import { loadNotebook, renderNotebook } from "./notebook";
 import { bool, display, int, obj, resolvePath, str, type Tool, type ToolContext, ToolInputError } from "./tool";
 
 const MAX_LINES = 2000;
 const MAX_LINE_CHARS = 2000;
 
-function mtime(p: string): number {
+export function mtime(p: string): number {
   return statSync(p).mtimeMs;
 }
 
-function requireFreshRead(path: string, ctx: ToolContext): string | undefined {
+export function requireFreshRead(path: string, ctx: ToolContext): string | undefined {
   const seen = ctx.readState.get(path);
   if (seen === undefined) return `read ${display(path, ctx)} with the Read tool before changing it`;
   if (mtime(path) !== seen) return `${display(path, ctx)} changed since you read it; read it again first`;
@@ -25,7 +26,7 @@ type ReadArgs = { path: string; offset: number; limit: number };
 export const readTool: Tool<ReadArgs> = {
   spec: {
     name: "Read",
-    description: `Read a text file. Returns lines prefixed with their line numbers. Reads up to ${MAX_LINES} lines; use offset (1-based line) and limit for longer files.`,
+    description: `Read a text file. Returns lines prefixed with their line numbers. Reads up to ${MAX_LINES} lines; use offset (1-based line) and limit for longer files. A Jupyter notebook (.ipynb) is shown as its cells, with ids and outputs.`,
     inputSchema: {
       type: "object",
       properties: {
@@ -50,6 +51,15 @@ export const readTool: Tool<ReadArgs> = {
     if (statSync(p).isDirectory()) return { content: `${display(p, ctx)} is a directory; use Glob`, isError: true };
     const buf = readFileSync(p);
     if (buf.subarray(0, 8192).includes(0)) return { content: `${display(p, ctx)} looks binary`, isError: true };
+    if (p.endsWith(".ipynb")) {
+      try {
+        const nb = loadNotebook(p);
+        ctx.readState.set(p, mtime(p));
+        return { content: renderNotebook(nb) };
+      } catch {
+        // Not a valid notebook: show it as text.
+      }
+    }
     ctx.readState.set(p, mtime(p));
     const lines = buf.toString("utf8").split("\n");
     const start = Math.max(1, a.offset);

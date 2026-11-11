@@ -12,18 +12,21 @@ import {
   expandSkill,
   type HookRunner,
   type Item,
+  latestTodos,
   loadSession,
   type PermissionConfig,
   type PermissionMode,
   ProviderError,
   parseRules,
   parseSlash,
+  parseTodos,
   runAgent,
   runCompaction,
   type SessionLog,
   type Skill,
   similarNames,
   suggestRule,
+  type Todo,
   type Usage,
 } from "@everything-harness/core";
 import { Editor } from "./editor";
@@ -33,7 +36,7 @@ import { type ConfigItem, PANEL_TABS, type PanelContent, type PanelTab, renderPa
 import { InlineRenderer, type Screen } from "./renderer";
 import { BRACKETED_PASTE_OFF, BRACKETED_PASTE_ON, HIDE_CURSOR, SHOW_CURSOR, type TerminalIo } from "./terminal";
 import { makeStyle, type Style, wrap } from "./text";
-import { resultLines, toolHeader, toolHeaderFromCall } from "./toolview";
+import { resultLines, todoLines, toolHeader, toolHeaderFromCall } from "./toolview";
 
 export type TuiOptions = {
   terminal: TerminalIo;
@@ -111,6 +114,7 @@ const BUILTIN_COMMANDS: [string, string][] = [
   ["clear", "Start a new conversation"],
   ["compact", "Summarise the conversation to free context; add text to steer the summary"],
   ["btw", "Ask a side question; it is not added to the conversation"],
+  ["todos", "Show the model's current to-do list"],
   ["status", "Settings panel: model, folder and session"],
   ["config", "Settings panel: change settings"],
   ["usage", "Settings panel: tokens and context used"],
@@ -162,6 +166,7 @@ export class TuiApp {
   private exitArmed = false;
   private sessionStart: "startup" | "resume" | "clear" | "compact" | undefined;
   private compacting = false;
+  private todos: Todo[] | undefined; // the model's latest to-do list
   private tokenScale = 1; // reported tokens per estimated token, carried between prompts
   private hooks: HookRunner | undefined;
   private frame = 0;
@@ -191,6 +196,7 @@ export class TuiApp {
     this.modelLabel = opts.modelLabel;
     this.contextWindow = opts.contextWindow;
     this.history = opts.history ?? [];
+    this.todos = latestTodos(this.history);
     this.cacheDays = opts.cacheDays ?? 3;
     this.session = opts.session;
     this.hooks = opts.hooksFor?.(this.session);
@@ -634,6 +640,16 @@ export class TuiApp {
       void this.btw(args);
       return true;
     }
+    if (name === "todos") {
+      const list = this.todos?.length
+        ? todoLines(this.todos, this.style)
+        : [this.style.dim("  No to-do list yet: the model makes one for multi-step work.")];
+      this.flushText();
+      this.print(["", `${this.style.cyan("◆")} ${this.style.bold("Todos")}`, ...list, ""]);
+      this.block = "none";
+      this.render();
+      return true;
+    }
     return false;
   }
 
@@ -647,6 +663,7 @@ export class TuiApp {
         return true;
       case "clear":
         this.history = [];
+        this.todos = undefined;
         this.session = this.opts.newSession();
         this.hooks = this.opts.hooksFor?.(this.session);
         this.sessionStart = "clear";
@@ -824,6 +841,13 @@ export class TuiApp {
       case "tool_call":
         this.flushText();
         this.callArgs.set(e.id, e.args);
+        if (e.name === "TodoWrite") {
+          try {
+            this.todos = parseTodos(e.args);
+          } catch {
+            // Invalid lists are refused by the tool; keep the last good one.
+          }
+        }
         // A blank line sets each tool call apart from the reply text and from other calls.
         this.print([
           ...(this.block === "none" ? [] : [""]),
@@ -955,7 +979,12 @@ export class TuiApp {
       if (this.running) {
         const secs = Math.floor((Date.now() - this.running.started) / 1000);
         const spin = this.opts.animate === false ? "✻" : (SPINNER[this.frame % SPINNER.length] as string);
-        const what = this.compacting ? "Compacting the conversation…" : "Working…";
+        const doing = this.todos?.find((t) => t.status === "in_progress");
+        const what = this.compacting
+          ? "Compacting the conversation…"
+          : doing
+            ? `${doing.activeForm ?? doing.content}…`
+            : "Working…";
         lines.push(`${s.magenta(spin)} ${s.dim(`${what} (${secs}s · esc to interrupt)`)}`);
       }
       if (this.explore) {

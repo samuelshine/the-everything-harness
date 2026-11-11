@@ -37,6 +37,7 @@ import {
   type Provider,
   ProviderError,
   parseModelRef,
+  parseRule,
   parseSlash,
   pruneCaches,
   pruneSessions,
@@ -52,6 +53,7 @@ import {
   setTrusted,
   setUserSetting,
   similarNames,
+  splitRuleList,
   TranscriptCache,
   tehHome,
   triage,
@@ -226,6 +228,13 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   const dir = resolve(io.cwd);
   const home = tehHome(io.env);
   const startSettings = loadSettings(home, root, userHome(io));
+  // WebSearch's engine (ADR-0021); a Brave key comes only from the environment.
+  const webSearch = startSettings.webSearch
+    ? {
+        ...startSettings.webSearch,
+        ...(io.env.BRAVE_SEARCH_API_KEY ? { apiKey: io.env.BRAVE_SEARCH_API_KEY } : {}),
+      }
+    : undefined;
   // Cleanup (ADR-0004, ADR-0018): UI caches after a few idle days, whole sessions after
   // cleanupPeriodDays, and checkpoints only when checkpointRetentionDays is set.
   const cacheDays = startSettings.cacheRetentionDays ?? DEFAULT_CACHE_RETENTION_DAYS;
@@ -485,6 +494,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
           skillListingChars: Math.max(4000, Math.round((probe.contextWindow ?? 0) * 0.04)),
           ...(explore ? { explore } : {}),
           ...(startSettings.autoCompact === false ? { autoCompact: false } : {}),
+          ...(webSearch ? { webSearch } : {}),
         },
         modelLabel: modelSpec,
         session,
@@ -541,6 +551,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       ...(explore ? { explore } : {}),
       ...(probe.contextWindow ? { contextWindow: probe.contextWindow } : {}),
       ...(startSettings.autoCompact === false ? { autoCompact: false } : {}),
+      ...(webSearch ? { webSearch } : {}),
       checkpoint: async ({ first, title }) =>
         (await store.snapshot(first ? "turn" : "step", session.id, first ? prompt : title)).sha,
     });
@@ -586,9 +597,54 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   }
 }
 
+// Tool names a rule can start with; anything else after --allowedTools is the prompt.
+const RULE_TOOLS = new Set([
+  "Read",
+  "Glob",
+  "Grep",
+  "Edit",
+  "Write",
+  "MultiEdit",
+  "NotebookEdit",
+  "Bash",
+  "TodoWrite",
+  "WebFetch",
+  "WebSearch",
+  "Task",
+  "Skill",
+]);
+const isRuleList = (arg: string) => {
+  const parts = splitRuleList(arg);
+  return (
+    parts.length > 0 &&
+    parts.every((r) => {
+      const rule = parseRule(r);
+      return rule !== undefined && (RULE_TOOLS.has(rule.tool) || rule.tool.startsWith("mcp__"));
+    })
+  );
+};
+
+// "--allowedTools Edit 'Bash(npm test:*)'" takes several rules, as in Claude Code. parseArgs
+// takes one value per flag, so the rules that follow are turned into repeated flags.
+export function expandRuleFlags(argv: string[]): string[] {
+  const out: string[] = [];
+  for (let i = 0; i < argv.length; i++) {
+    const arg = argv[i] as string;
+    out.push(arg);
+    if (arg === "--") {
+      out.push(...argv.slice(i + 1));
+      break;
+    }
+    if (arg !== "--allowedTools" && arg !== "--disallowedTools") continue;
+    if (i + 1 < argv.length) out.push(argv[++i] as string);
+    while (i + 1 < argv.length && isRuleList(argv[i + 1] as string)) out.push(arg, argv[++i] as string);
+  }
+  return out;
+}
+
 function parse(argv: string[]) {
   return parseArgs({
-    args: argv,
+    args: expandRuleFlags(argv),
     allowPositionals: true,
     strict: true,
     options: {
