@@ -90,6 +90,12 @@ describe("teh cli", () => {
       },
       { provider: () => fake as Provider },
     );
+    // A folder teh has not been started in before: it asks first, and "n" opens it untrusted.
+    for (let i = 0; i < 50 && !vt.text().includes("Esc quits"); i++) await Bun.sleep(20);
+    expect(vt.text()).toContain("Do you trust the files in this folder?");
+    expect(vt.text()).toContain(cwd);
+    expect(fake.requests.length).toBe(0);
+    vt.type("n");
     for (let i = 0; i < 50 && !vt.text().includes("hi from the UI"); i++) await Bun.sleep(20);
     expect(vt.text()).toContain("› say hi");
     expect(vt.text()).toContain("● hi from the UI");
@@ -126,15 +132,21 @@ describe("teh cli", () => {
         },
         { provider: () => fake as Provider },
       );
+      for (let i = 0; i < 50 && !/Esc quits|Ask teh anything/.test(vt.text()); i++) await Bun.sleep(20);
+      const asked = vt.text().includes("Do you trust the files in this folder?");
+      if (asked) vt.type("y");
       for (let i = 0; i < 50 && !vt.text().includes("Ask teh anything"); i++) await Bun.sleep(20);
       vt.type(keys);
       for (let i = 0; i < 50 && !vt.text().includes(until); i++) await Bun.sleep(20);
       const screen = vt.text();
       vt.type("\x04");
       expect(await running).toBe(0);
-      return { screen, fake };
+      return { screen, fake, asked };
     };
-    await ui([], [say("the answer is 42")], "remember 42\r", "the answer is 42");
+    const first = await ui([], [say("the answer is 42")], "remember 42\r", "the answer is 42");
+    // Trust is asked once per folder: "y" is remembered.
+    expect(first.asked).toBe(true);
+    expect((await call(["permissions"], { cwd, home })).out).toContain(": trusted");
     const cacheDir = join(home, "projects", readdirSync(join(home, "projects"))[0] as string, "cache");
     const [cacheFile] = readdirSync(cacheDir);
     expect(cacheFile).toEndWith(".transcript.jsonl");
@@ -147,6 +159,7 @@ describe("teh cli", () => {
     age(2);
     const soon = await ui(["--continue"], [say("still 42")], "\x1b[1;5H", "earlier in this session ──");
     expect(soon.screen).toContain("── earlier in this session ──");
+    expect(soon.asked).toBe(false);
 
     // Four days later: the cache is deleted, but --continue still sends the whole conversation.
     age(4);
@@ -169,10 +182,84 @@ describe("teh cli", () => {
     expect(existsSync(join(cacheDir, cacheFile as string))).toBe(false);
   });
 
-  test("-p without a model explains how to pick one", async () => {
-    const r = await call(["-p", "hi"]);
-    expect(r.code).toBe(2);
-    expect(r.err).toContain("teh models");
+  test("without --model, teh picks an installed model to fit the task, by rules that cost no tokens", async () => {
+    const GB = 1e9;
+    const installed = [
+      { id: "tiny", supportsTools: true, sizeBytes: 0.4 * GB },
+      { id: "chat-only", supportsTools: false, sizeBytes: 30 * GB },
+      { id: "small", supportsTools: true, sizeBytes: 5 * GB },
+      { id: "mid", supportsTools: true, sizeBytes: 9 * GB },
+      { id: "big", supportsTools: true, sizeBytes: 20 * GB },
+    ];
+    const ask = async (prompt: string, models = installed, extra: string[] = []) => {
+      let err = "";
+      const fake = new FakeProvider([say("ok")]);
+      const provider = Object.assign(fake, { listModels: async () => models });
+      const home = temp();
+      const code = await run(
+        ["-p", ...extra, prompt],
+        {
+          out: () => {},
+          err: (s) => (err += s),
+          env: { TEH_HOME: home, HOME: home },
+          cwd: temp(),
+          stdin: async () => "",
+        },
+        { provider: () => provider as Provider },
+      );
+      return { code, err, fake };
+    };
+    const small = await ask("what does this repo do?");
+    expect(small.err).toContain("› model: ollama:small · chosen for this task (S: short question)");
+    // One request: choosing the model made no model call of its own.
+    expect(small.fake.requests).toHaveLength(1);
+    expect(small.fake.requests[0]?.model).toBe("small");
+    expect(
+      (await ask("add a --json flag to the export command and cover it with a test")).fake.requests[0]?.model,
+    ).toBe("mid");
+    expect((await ask("refactor the session store so that it can be swapped")).fake.requests[0]?.model).toBe("big");
+    // A pinned model always wins, and nothing is said about choosing.
+    const pinned = await ask("what does this repo do?", installed, ["--model", "ollama:big"]);
+    expect(pinned.fake.requests[0]?.model).toBe("big");
+    expect(pinned.err).not.toContain("chosen for this task");
+    // A model too small to drive tools is used only when it is all there is.
+    expect((await ask("hi", [installed[0] as (typeof installed)[0]])).fake.requests[0]?.model).toBe("tiny");
+    const none = await ask("hi", [installed[1] as (typeof installed)[0]]);
+    expect(none.code).toBe(2);
+    expect(none.err).toContain("no installed model supports tool calling");
+    expect(none.err).toContain("teh models");
+  });
+
+  test("each directory is its own project: sessions do not cross folders, even inside one repository", async () => {
+    const repo = temp();
+    mkdirSync(join(repo, ".git"));
+    mkdirSync(join(repo, "sub"));
+    const home = temp();
+    await call(["-p", "--model", "fake:fake", "in the root"], { cwd: repo, home, turns: [say("a")] });
+    await call(["-p", "--model", "fake:fake", "in sub"], { cwd: join(repo, "sub"), home, turns: [say("b")] });
+    expect(readdirSync(join(home, "projects"))).toHaveLength(2);
+    const rootSessions = (await call(["sessions"], { cwd: repo, home })).out;
+    expect(rootSessions).toContain("in the root");
+    expect(rootSessions).not.toContain("in sub");
+    // --continue takes the latest session of this folder; without it a new session starts.
+    const cont = await call(["-p", "--model", "fake:fake", "-c", "more"], {
+      cwd: join(repo, "sub"),
+      home,
+      turns: [say("c")],
+    });
+    expect(cont.fake.requests[0]?.items.map((i) => (i.kind === "text" ? i.text : i.kind))).toEqual([
+      "in sub",
+      "b",
+      "more",
+    ]);
+    const fresh = await call(["-p", "--model", "fake:fake", "new"], {
+      cwd: join(repo, "sub"),
+      home,
+      turns: [say("d")],
+    });
+    expect(fresh.fake.requests[0]?.items).toHaveLength(1);
+    const other = await call(["-p", "--model", "fake:fake", "-c", "x"], { cwd: join(repo, "sub", ".."), home: temp() });
+    expect(other.err).toContain("no earlier session in this project to continue");
   });
 
   test("-p streams the answer and writes a session", async () => {

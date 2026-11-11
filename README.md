@@ -47,12 +47,18 @@ bun run build
 packages/cli/dist/teh models  # list local models and whether they support tools
 packages/cli/dist/teh -p --model ollama:gemma4:e4b "What does this repo do?"
 ```
-Run `teh --model ollama:gemma4:e4b` with no `-p` to work interactively (ADR-0005, ADR-0018). The UI takes the whole terminal; `--inline` keeps it in the normal scrollback instead.
+Run `teh` with no `-p` to work interactively (ADR-0005, ADR-0018). The UI takes the whole terminal; `--inline` keeps it in the normal scrollback instead.
+- **Model:** with no `--model`, `teh` picks one of your installed models to fit the first prompt: a small one for a short question, the largest for a refactor (ADR-0014). The rules use no tokens, and the model stays the same for the session. `--model ollama:<name>` or `TEH_MODEL` pins one.
+- **Trust:** the first time you start `teh` in a folder it asks whether you trust it. *No* still opens the folder, with the folder's own allow rules, hooks and MCP servers ignored.
+- **Projects:** each directory is its own project. `teh` starts a new session; `teh -c` continues the latest one started in this directory.
 - **Sending:** type a prompt and press Enter. Shift+Enter, Alt+Enter, or `\` then Enter adds a new line. Pasting a block keeps it as one prompt.
 - **While it works:** Esc interrupts. Anything you type is queued and sent when it finishes.
 - **Approvals:** when `teh` needs approval it asks inline. `y` allows once, `a` allows that kind of action for the rest of the session, and `n` refuses.
 - **Modes:** Shift+Tab cycles the permission mode: ask, accept edits, plan.
-- **Commands:** `/help`, `/clear`, `/cost` and `/exit`, plus your skills and commands. `/` shows completions.
+- **Commands:** `/clear` and `/exit`, plus your skills and commands. `/` shows completions.
+- **Settings panel:** `/status`, `/config`, `/usage` and `/help` open a panel over the prompt box. ←/→ or Tab switches tabs, Enter changes a setting, Esc closes it.
+- **Side questions:** `/btw <question>` answers from the conversation so far without adding to it, even while `teh` is working.
+- **What you see:** replies start with `●`. Tool calls start with `◆`, and edits show a numbered diff with removed lines in red and added lines in green.
 - **Scrolling:** mouse wheel, PgUp/PgDn or Shift+Up/Down. Ctrl+Home and Ctrl+End jump to the start and the end. Hold Shift (Option in some macOS terminals) to select text with the mouse.
 - **Leaving:** Ctrl+D quits. `teh -c` picks the conversation up again.
 - **Session cache:** what the screen showed is saved per session and drawn again when you resume. A cache untouched for 3 days is deleted; set `cacheRetentionDays` in `~/.teh/settings.json` to change that. The conversation itself is kept, so `teh -c` still continues an older session, with a shorter rebuilt view.

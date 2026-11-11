@@ -43,6 +43,9 @@ export type Style = {
   magenta: (s: string) => string;
   cyan: (s: string) => string;
   gray: (s: string) => string;
+  // Backgrounds for diff lines.
+  added: (s: string) => string;
+  removed: (s: string) => string;
 };
 
 const sgr = (on: number, off: number) => (s: string) => `\x1b[${on}m${s}\x1b[${off}m`;
@@ -63,6 +66,8 @@ export function makeStyle(color: boolean): Style {
       magenta: id,
       cyan: id,
       gray: id,
+      added: id,
+      removed: id,
     };
   }
   return {
@@ -77,6 +82,8 @@ export function makeStyle(color: boolean): Style {
     magenta: sgr(35, 39),
     cyan: sgr(36, 39),
     gray: sgr(90, 39),
+    added: (t) => `\x1b[48;5;22m\x1b[97m${t}\x1b[39m\x1b[49m`,
+    removed: (t) => `\x1b[48;5;52m\x1b[97m${t}\x1b[39m\x1b[49m`,
   };
 }
 

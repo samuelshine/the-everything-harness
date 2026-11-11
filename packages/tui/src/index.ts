@@ -6,3 +6,4 @@ export * from "./keys";
 export * from "./renderer";
 export * from "./terminal";
 export * from "./text";
+export * from "./trust";
