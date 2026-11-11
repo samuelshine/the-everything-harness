@@ -146,7 +146,9 @@ export function trust(io: Io, revoke: boolean, home: string): number {
   const teh = tehHome(io.env);
   if (revoke) {
     setTrusted(teh, root, false);
-    io.out(`No longer trusting ${root}. Its allow rules, hooks and skill grants are ignored again.\n`);
+    io.out(
+      `No longer trusting ${root}. Its allow rules, hooks, skill grants and .mcp.json servers are ignored again.\n`,
+    );
     return 0;
   }
   if (root === home) {

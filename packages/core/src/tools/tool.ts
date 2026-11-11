@@ -24,7 +24,9 @@ export type ToolResult = { content: string; isError?: boolean };
 export type Access =
   | { kind: "read"; paths: string[]; summary: string }
   | { kind: "write"; paths: string[]; summary: string }
-  | { kind: "execute"; command: string; summary: string };
+  | { kind: "execute"; command: string; summary: string }
+  // A tool outside teh, such as an MCP server's (ADR-0017). Its effects are unknown.
+  | { kind: "external"; server: string; summary: string };
 
 export interface Tool<A = unknown> {
   spec: ToolSpec;

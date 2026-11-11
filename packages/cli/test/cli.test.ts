@@ -476,6 +476,62 @@ describe("teh cli", () => {
       expect(JSON.parse(blocked.out)).toMatchObject({ is_error: true, stop_reason: "hook_blocked" });
     });
 
+    test("a repo's .mcp.json servers start only once trusted; --mcp-config adds servers", async () => {
+      const cwd = temp();
+      const home = temp();
+      const server = join(import.meta.dir, "../../core/test/fixtures/mcp-server.ts");
+      const config = { mcpServers: { local: { command: process.execPath, args: [server] } } };
+      writeFileSync(join(cwd, ".mcp.json"), JSON.stringify(config));
+      const echo = () => [callTool("mcp__local__echo", { text: "hi" }), say("ok")];
+
+      const listed = await call(["mcp"], { cwd, home });
+      expect(listed.out).toContain("not started: run `teh trust`");
+
+      const before = await call(["-p", "--model", "fake:fake", "--output-format", "stream-json", "go"], {
+        cwd,
+        home,
+        turns: [say("ok")],
+      });
+      expect(before.err).toContain("not starting MCP server(s) local from .mcp.json until you trust this folder");
+      expect(JSON.parse(before.out.split("\n")[0] as string).tools).not.toContain("mcp__local__echo");
+
+      await call(["trust"], { cwd, home });
+      const after = await call(["mcp"], { cwd, home });
+      expect(after.code).toBe(0);
+      expect(after.out).toContain("4 tool(s)");
+      expect(after.out).toContain("· mcp__local__echo");
+      const ran = await call(["-p", "--model", "fake:fake", "--allowedTools", "mcp__local", "go"], {
+        cwd,
+        home,
+        turns: echo(),
+      });
+      expect(ran.code).toBe(0);
+      expect(ran.err).toContain("› local: Echo");
+      expect(JSON.stringify(ran.fake.requests[1]?.items.at(-1))).toContain("echo: hi");
+
+      // --strict-mcp-config uses only --mcp-config servers.
+      const other = temp();
+      const strict = await call(
+        [
+          "-p",
+          "--model",
+          "fake:fake",
+          "--output-format",
+          "stream-json",
+          "--strict-mcp-config",
+          "--mcp-config",
+          JSON.stringify({ mcpServers: { flagged: config.mcpServers.local } }),
+          "go",
+        ],
+        { cwd, home, turns: [say("ok")] },
+      );
+      const init = JSON.parse(strict.out.split("\n")[0] as string);
+      expect(init.mcp_servers).toEqual([{ name: "flagged", status: "connected" }]);
+      expect(init.tools).toContain("mcp__flagged__echo");
+      expect(init.tools).not.toContain("mcp__local__echo");
+      expect(other).toBeTruthy();
+    });
+
     test("--sandbox is validated, and an untrusted project can only tighten the sandbox", async () => {
       expect((await call(["--sandbox", "maybe", "-p", "x"])).err).toContain("--sandbox must be one of");
       const cwd = temp();
