@@ -71,6 +71,7 @@ describe("settings files", () => {
       JSON.stringify({
         model: "ollama:big",
         screen: "inline",
+        autoCompact: true,
         cleanupPeriodDays: 7,
         checkpointRetentionDays: 14,
         permissions: { defaultMode: "acceptEdits", allow: ["Read"] },
@@ -79,7 +80,10 @@ describe("settings files", () => {
     expect(setProjectSetting(root, "model", "ollama:small")).toBe(true);
     expect(setProjectSetting(root, "roles.explore", "ollama:tiny")).toBe(true);
     expect(setProjectSetting(root, "permissions.defaultMode", "plan")).toBe(true);
+    // The project's autoCompact wins over the user's.
+    expect(setProjectSetting(root, "autoCompact", false)).toBe(true);
     const s = loadSettings(teh, root, home);
+    expect(s.autoCompact).toBe(false);
     expect(s.model).toEqual({ user: "ollama:big", project: "ollama:small" });
     expect(s.exploreModel).toEqual({ project: "ollama:tiny" });
     expect(s.defaultMode).toEqual({ user: "acceptEdits", project: "plan" });
@@ -100,11 +104,15 @@ describe("settings files", () => {
     write(join(home, ".claude", "settings.json"), { model: "opus" });
     expect(loadSettings(tempDir(), tempDir(), home).model).toEqual({});
     // Bad values are reported, not used.
-    writeFileSync(join(teh, "settings.json"), JSON.stringify({ cleanupPeriodDays: 0, screen: "big" }));
+    writeFileSync(
+      join(teh, "settings.json"),
+      JSON.stringify({ cleanupPeriodDays: 0, screen: "big", autoCompact: "yes" }),
+    );
     const bad = loadSettings(teh, tempDir(), home);
     expect(bad.cleanupPeriodDays).toBeUndefined();
     expect(bad.problems.map((p) => p.message)).toEqual([
       "cleanupPeriodDays must be a number of days (1 or more)",
+      "autoCompact must be true or false",
       'screen must be "fullscreen" or "inline"',
     ]);
   });

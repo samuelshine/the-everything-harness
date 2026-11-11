@@ -2,6 +2,14 @@
 // the permission engine, feed results back, and repeat until the model stops.
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import {
+  AUTO_COMPACT_FRACTION,
+  type CompactResult,
+  compactConversation,
+  estimateTokens,
+  KEEP_RECENT_FRACTION,
+  logCompaction,
+} from "./compact";
 import type { HookEvent, HookOutcome, HookRunner } from "./hooks";
 import { findProjectRoot, loadInstructions, renderInstructions } from "./instructions";
 import { type Decision, decide, type PermissionConfig, parseRules, type Rule } from "./permissions";
@@ -40,7 +48,10 @@ export type AgentEvent =
   | { type: "turn_end"; usage: Usage }
   // An explore subagent's progress (ADR-0019): `id` is the Task call it runs for.
   | { type: "subagent"; id: string; model: string; phase: "tool"; summary: string }
-  | { type: "subagent"; id: string; model: string; phase: "done"; usage: Usage; toolUses: number };
+  | { type: "subagent"; id: string; model: string; phase: "done"; usage: Usage; toolUses: number }
+  // Context compaction (ADR-0020). `before`/`after` are estimated tokens of the conversation.
+  | { type: "compact"; phase: "start"; trigger: "manual" | "auto" }
+  | { type: "compact"; phase: "done"; trigger: "manual" | "auto"; before: number; after: number; usage: Usage };
 
 // Asked when the permission engine says "ask". Headless runs answer "deny".
 export type Asker = (req: { tool: string; access: Access; reason: string }) => Promise<boolean>;
@@ -82,6 +93,12 @@ export type AgentOptions = {
   hookSessionStart?: "startup" | "resume" | "clear" | "compact";
   // The model for explore subagents (ADR-0019). When set, the Task tool is offered.
   explore?: { provider: Provider; model: string; label: string };
+  // The model's context window in tokens. When known, the conversation is compacted before a
+  // request would fill most of it (ADR-0020), unless `autoCompact` is false.
+  contextWindow?: number;
+  autoCompact?: boolean;
+  // Reported tokens per estimated token, from an earlier run of the same conversation.
+  tokenScale?: number;
 };
 
 export type AgentResult = {
@@ -91,6 +108,8 @@ export type AgentResult = {
   turns: number;
   usage: Usage;
   items: Item[];
+  // Reported tokens per estimated token, to pass to the next run as `tokenScale`.
+  tokenScale: number;
 };
 
 export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
@@ -184,11 +203,15 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   const items: Item[] = [...(opts.history ?? [])];
   let usage = emptyUsage();
   let result = "";
+  // Characters per token vary (code and numbers take more tokens), so the estimate is scaled
+  // by what the provider reported for the last request: its input tokens over our estimate.
+  let scale = opts.tokenScale ?? 1;
+  let sentEstimate = 0;
   const maxTurns = opts.maxTurns ?? 50;
   const finish = (stopReason: AgentResult["stopReason"], turns: number): AgentResult => {
     const total = addUsage(usage, subagentUsage);
     log?.append("session_end", { stopReason, turns, usage: total });
-    return { result, stopReason, turns, usage: total, items };
+    return { result, stopReason, turns, usage: total, items, tokenScale: scale };
   };
 
   const hooks = opts.hooks;
@@ -230,6 +253,39 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     log?.append("skill_route", { ...opts.skillRoute, ...(hint ? { hint } : {}) });
   }
   let stopHookActive = false;
+  const specs = tools.map((t) => t.spec);
+  const window = opts.contextWindow;
+  // Replace the conversation in place with a compacted one; false when that was not possible.
+  const compactNow = async (keepFraction: number): Promise<boolean> => {
+    if (!window) return false;
+    try {
+      const r = await runCompaction({
+        provider: opts.provider,
+        model: opts.model,
+        items,
+        contextWindow: window,
+        keepTokens: Math.floor(window * keepFraction),
+        trigger: "auto",
+        scale,
+        emit,
+        ...(log ? { session: log } : {}),
+        ...(hooks ? { hooks } : {}),
+        ...(opts.signal ? { signal: opts.signal } : {}),
+      });
+      items.splice(0, items.length, ...r.items);
+      usage = addUsage(usage, r.usage);
+      if (hooks?.has("SessionStart")) {
+        const o = await hooks.run({ hook_event_name: "SessionStart", source: "compact" }, "compact");
+        report("SessionStart", o);
+        for (const c of o.context) addHookText("SessionStart", c);
+      }
+      return true;
+    } catch (e) {
+      if (opts.signal?.aborted) throw e;
+      emit({ type: "warning", message: `could not compact the conversation: ${(e as Error).message}` });
+      return false;
+    }
+  };
 
   for (let turn = 1; turn <= maxTurns; turn++) {
     let text = "";
@@ -237,21 +293,38 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     const calls: { id: string; name: string; args: unknown }[] = [];
     let stop: StopReason = "end";
     let turnUsage = emptyUsage();
+
+    if (
+      window &&
+      opts.autoCompact !== false &&
+      estimateTokens({ system, items, tools: specs }) * scale > window * AUTO_COMPACT_FRACTION
+    )
+      await compactNow(KEEP_RECENT_FRACTION / scale);
     Object.assign(step, { conversationAt: log?.lastEventId ?? null, tried: false, sha: "", changes: [] });
 
-    for await (const ev of opts.provider.stream(
-      { model: opts.model, system, items, tools: tools.map((t) => t.spec) },
-      opts.signal,
-    )) {
-      if (ev.type === "text_delta") {
-        text += ev.text;
-        emit(ev);
-      } else if (ev.type === "reasoning_delta") {
-        reasoning += ev.text;
-        emit(ev);
-      } else if (ev.type === "tool_call") calls.push(ev);
-      else if (ev.type === "usage") turnUsage = addUsage(turnUsage, ev.usage);
-      else stop = ev.reason;
+    // A request the provider refuses as too long is compacted harder and sent once more,
+    // as long as nothing of the reply has arrived yet.
+    for (let attempt = 0; ; attempt++) {
+      let started = false;
+      sentEstimate = estimateTokens({ system, items, tools: specs });
+      try {
+        for await (const ev of opts.provider.stream({ model: opts.model, system, items, tools: specs }, opts.signal)) {
+          started = true;
+          if (ev.type === "text_delta") {
+            text += ev.text;
+            emit(ev);
+          } else if (ev.type === "reasoning_delta") {
+            reasoning += ev.text;
+            emit(ev);
+          } else if (ev.type === "tool_call") calls.push(ev);
+          else if (ev.type === "usage") turnUsage = addUsage(turnUsage, ev.usage);
+          else stop = ev.reason;
+        }
+        break;
+      } catch (e) {
+        const tooLong = e instanceof ProviderError && e.kind === "context_exceeded";
+        if (!tooLong || started || attempt > 0 || opts.autoCompact === false || !(await compactNow(0))) throw e;
+      }
     }
 
     const produced: Item[] = [];
@@ -263,6 +336,8 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
       log?.append("assistant_item", item);
     }
     usage = addUsage(usage, turnUsage);
+    const reported = turnUsage.input + turnUsage.cachedRead + turnUsage.cacheWrite;
+    if (reported > 0 && sentEstimate > 0) scale = Math.max(1, reported / sentEstimate);
     log?.append("usage", { turn, ...turnUsage });
     emit({ type: "turn_end", usage: turnUsage });
     if (text) result = text;
@@ -304,6 +379,56 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   }
 
   return finish("max_turns", maxTurns);
+}
+
+export type CompactionOptions = {
+  provider: Provider;
+  model: string;
+  items: Item[];
+  contextWindow: number;
+  keepTokens: number;
+  trigger: "manual" | "auto";
+  instructions?: string;
+  session?: SessionLog;
+  hooks?: HookRunner;
+  signal?: AbortSignal;
+  emit?: (e: AgentEvent) => void;
+  // Reported tokens per estimated token, so the sizes shown match the provider's counts.
+  scale?: number;
+};
+
+// Compact a conversation (ADR-0020): PreCompact hooks first, then the summary, logged so a
+// resumed session continues from it. Used by the agent loop and by /compact.
+export async function runCompaction(o: CompactionOptions): Promise<CompactResult> {
+  const emit = o.emit ?? (() => {});
+  if (o.hooks?.has("PreCompact")) {
+    const pre = await o.hooks.run(
+      { hook_event_name: "PreCompact", trigger: o.trigger, custom_instructions: o.instructions ?? "" },
+      o.trigger,
+    );
+    reportHook("PreCompact", pre, emit, o.session);
+  }
+  emit({ type: "compact", phase: "start", trigger: o.trigger });
+  const r = await compactConversation({
+    provider: o.provider,
+    model: o.model,
+    items: o.items,
+    contextWindow: o.contextWindow,
+    keepTokens: o.keepTokens,
+    ...(o.instructions ? { instructions: o.instructions } : {}),
+    ...(o.signal ? { signal: o.signal } : {}),
+  });
+  logCompaction(o.session, r, o.trigger);
+  const k = o.scale ?? 1;
+  emit({
+    type: "compact",
+    phase: "done",
+    trigger: o.trigger,
+    before: Math.round(r.before * k),
+    after: Math.round(r.after * k),
+    usage: r.usage,
+  });
+  return r;
 }
 
 // One explore subagent run: a fresh conversation on the explore model, read-only tools,

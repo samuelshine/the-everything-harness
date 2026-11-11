@@ -20,6 +20,7 @@ export type SessionEventType =
   | "checkpoint"
   | "checkpoint_title"
   | "rewind"
+  | "compact"
   | "skill_route"
   | "hook"
   | "error"
@@ -204,6 +205,10 @@ function replay(events: SessionEvent[]) {
       if (p) p.title = String(data.title);
     } else if (ev.type === "rewind" && data.scope !== "code") {
       current = typeof data.to === "string" ? (states.get(data.to) ?? null) : null;
+    } else if (ev.type === "compact" && typeof data.summary === "string") {
+      // The summary stands in for everything but the last `keep` items (ADR-0020). Earlier
+      // states stay in the map, so a rewind past this point restores the full conversation.
+      current = compacted(current, ev.id, data.summary, Number(data.keep) || 0);
     }
     current = { eventId: ev.id, ...(item ? { item } : {}), prev: current };
     states.set(ev.id, current);
@@ -223,6 +228,14 @@ function replay(events: SessionEvent[]) {
     }
   }
   return { states, current, model, outputStyle, firstPrompt, prompts, points };
+}
+
+function compacted(current: Node | null, eventId: string, summary: string, keep: number): Node {
+  const kept: Node[] = [];
+  for (let n = current; n && kept.length < keep; n = n.prev) if (n.item) kept.push(n);
+  let head: Node = { eventId, item: { kind: "text", role: "user", text: summary }, prev: null };
+  for (const n of kept.reverse()) head = { eventId: n.eventId, ...(n.item ? { item: n.item } : {}), prev: head };
+  return head;
 }
 
 // Replays a session file into its conversation and rewind points.

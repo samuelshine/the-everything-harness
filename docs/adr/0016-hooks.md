@@ -26,7 +26,7 @@ Two things need deciding beyond copying the format:
 {"hooks": {"PreToolUse": [{"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "./lint.sh", "timeout": 30}]}]}}
 ```
 
-- **Events fired:** `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`, `SessionEnd`. `Notification` is accepted, and the interactive UI fires it when it asks for approval. `SubagentStop` and `PreCompact` load without error and will fire once subagents and compaction exist.
+- **Events fired:** `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`, `SessionEnd`. `Notification` is accepted, and the interactive UI fires it when it asks for approval. `PreCompact` fires before a compaction, matched on `manual` or `auto` (ADR-0020). `SubagentStop` loads without error and does not fire yet.
 - **Matcher:** a regex over the whole tool name (`Edit|Write`, `mcp__github__.*`). Empty or `*` matches everything. For SessionStart it matches the source (`startup`, `resume`).
 - **Input:** one JSON object on stdin: `session_id`, `transcript_path`, `cwd`, `hook_event_name`, plus the event's own fields (`tool_name`, `tool_input`, `tool_response`, `prompt`, `stop_hook_active`, `source`, `reason`, `message`). `CLAUDE_PROJECT_DIR` and `TEH_PROJECT_DIR` are set to the project root.
 - **Answer:**
@@ -56,4 +56,4 @@ Two things need deciding beyond copying the format:
 - A hook can't widen what a deny rule blocks, so a script copied from Claude Code that relies on `allow` to bypass a deny rule behaves differently here. This is documented in the README.
 - **Hooks are not sandboxed.** They run with the user's full rights, like Claude Code's. Trust is the only gate for project hooks. Running hooks in the OS sandbox is a candidate follow-up.
 - `tool_response` is `{content, is_error}`, not Claude Code's per-tool shape. Scripts that read `tool_input` (the common case) work. Scripts that parse `tool_response` fields may need changes. Revisit if users hit this.
-- Not yet supported: `"type": "prompt"` hooks (asking a model to decide), HTTP hooks, and the `SubagentStop` and `PreCompact` events.
+- Not yet supported: `"type": "prompt"` hooks (asking a model to decide), HTTP hooks, and the `SubagentStop` event.

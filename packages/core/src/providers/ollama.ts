@@ -1,6 +1,7 @@
 // Native Ollama adapter (/api/chat). We use the native API rather than Ollama's
 // OpenAI-compatible endpoint so we can set num_ctx: Ollama's default window can be
 // as small as 4k and it truncates longer prompts silently (docs/research/12 §3).
+import { estimateTokens } from "../compact";
 import { type Item, type ModelRequest, ProviderError, type StreamEvent } from "../types";
 import type { ModelInfo, ProbeResult, Provider } from "./provider";
 
@@ -210,12 +211,6 @@ export function toOllamaMessages(system: string, items: Item[]): OllamaMessage[]
     else out.push({ role: "tool", content: item.content, tool_name: item.name });
   }
   return out;
-}
-
-// Rough token estimate (~4 chars per token), enough to catch a window that is far too small.
-export function estimateTokens(req: ModelRequest): number {
-  const chars = req.system.length + JSON.stringify(req.items).length + JSON.stringify(req.tools).length;
-  return Math.ceil(chars / 4);
 }
 
 async function* ndjson(res: Response): AsyncIterable<Record<string, unknown>> {

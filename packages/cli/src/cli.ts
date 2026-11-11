@@ -429,6 +429,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
           ...(startSettings.checkpointRetentionDays
             ? { checkpointRetentionDays: startSettings.checkpointRetentionDays }
             : {}),
+          ...(startSettings.autoCompact !== undefined ? { autoCompact: startSettings.autoCompact } : {}),
         },
         models: await localModels(makeProvider, installed),
         useModel: async (label: string) => {
@@ -483,6 +484,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
           skills,
           skillListingChars: Math.max(4000, Math.round((probe.contextWindow ?? 0) * 0.04)),
           ...(explore ? { explore } : {}),
+          ...(startSettings.autoCompact === false ? { autoCompact: false } : {}),
         },
         modelLabel: modelSpec,
         session,
@@ -537,6 +539,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       skills,
       skillListingChars: Math.max(4000, Math.round((probe.contextWindow ?? 0) * 0.04)),
       ...(explore ? { explore } : {}),
+      ...(probe.contextWindow ? { contextWindow: probe.contextWindow } : {}),
+      ...(startSettings.autoCompact === false ? { autoCompact: false } : {}),
       checkpoint: async ({ first, title }) =>
         (await store.snapshot(first ? "turn" : "step", session.id, first ? prompt : title)).sha,
     });
@@ -687,6 +691,9 @@ function textOutput(io: Io, denied: Denied[]) {
       io.err(`teh: warning: ${e.message}\n`);
     } else if (e.type === "hook") {
       io.err(`› ${e.event} hook: ${e.message}\n`);
+    } else if (e.type === "compact" && e.phase === "done") {
+      endLine();
+      io.err(`› conversation compacted: ~${e.before} → ~${e.after} tokens\n`);
     } else if (e.type === "tool_result" && e.isError && !e.content.startsWith("Permission denied")) {
       const line = e.content.split("\n").find((l) => l.trim() && l !== "[stderr]") ?? e.content;
       io.err(`  ! ${line}\n`);

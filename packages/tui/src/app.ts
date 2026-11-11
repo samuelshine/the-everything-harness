@@ -6,6 +6,7 @@ import {
   type AgentEvent,
   type AgentOptions,
   type AgentResult,
+  AUTO_COMPACT_FRACTION,
   addUsage,
   emptyUsage,
   expandSkill,
@@ -18,6 +19,7 @@ import {
   parseRules,
   parseSlash,
   runAgent,
+  runCompaction,
   type SessionLog,
   type Skill,
   similarNames,
@@ -83,6 +85,7 @@ export type SavedSettings = {
   defaultMode?: { user?: PermissionMode | undefined; project?: PermissionMode | undefined };
   cleanupPeriodDays?: number | undefined;
   checkpointRetentionDays?: number | undefined;
+  autoCompact?: boolean | undefined;
 };
 
 export type ModelPick = {
@@ -106,6 +109,7 @@ const MODES: PermissionMode[] = ["default", "acceptEdits", "plan"];
 const BUILTIN_COMMANDS: [string, string][] = [
   ["help", "Show keys and commands"],
   ["clear", "Start a new conversation"],
+  ["compact", "Summarise the conversation to free context; add text to steer the summary"],
   ["btw", "Ask a side question; it is not added to the conversation"],
   ["status", "Settings panel: model, folder and session"],
   ["config", "Settings panel: change settings"],
@@ -156,7 +160,9 @@ export class TuiApp {
   private lastInput = 0; // input tokens of the latest turn: the context in use
   private note = ""; // one-line message under the prompt, cleared on the next key
   private exitArmed = false;
-  private sessionStart: "startup" | "resume" | "clear" | undefined;
+  private sessionStart: "startup" | "resume" | "clear" | "compact" | undefined;
+  private compacting = false;
+  private tokenScale = 1; // reported tokens per estimated token, carried between prompts
   private hooks: HookRunner | undefined;
   private frame = 0;
   private escTimer: ReturnType<typeof setTimeout> | undefined;
@@ -381,6 +387,18 @@ export class TuiApp {
           set("user", "screen", this.fullscreen ? undefined : "inline");
         },
       },
+      {
+        label: "Auto-compact",
+        value: this.agent.autoCompact === false ? "off" : "on",
+        hint: this.contextWindow
+          ? `summarises older turns at ${Math.round(AUTO_COMPACT_FRACTION * 100)}% of ${fmt(this.contextWindow)} tokens`
+          : "context window unknown; /compact still works",
+        change: () => {
+          const on = this.agent.autoCompact === false;
+          this.agent = { ...this.agent, autoCompact: on };
+          set("user", "autoCompact", on ? undefined : false);
+        },
+      },
     ];
     if (!save) return items;
     const auto = "teh chooses";
@@ -463,6 +481,7 @@ export class TuiApp {
       this.contextWindow = pick.contextWindow ?? this.contextWindow;
       this.modelReason = "";
       this.picked = true;
+      this.tokenScale = 1;
     } catch (e) {
       this.note = `could not switch to ${label}: ${(e as Error).message}`;
     }
@@ -619,7 +638,7 @@ export class TuiApp {
   }
 
   // Built-in slash commands. Returns false when the name is not one.
-  private builtin(name: string, _args: string): boolean {
+  private builtin(name: string, args: string): boolean {
     const s = this.style;
     switch (name) {
       case "exit":
@@ -636,15 +655,63 @@ export class TuiApp {
         this.shownLines = [];
         this.usage = emptyUsage();
         this.lastInput = 0;
+        this.tokenScale = 1;
         this.print(["", s.dim("  (new conversation)"), ""]);
         this.render();
         return true;
       case "mode":
         this.cycleMode();
         return true;
+      case "compact":
+        void this.compact(args.trim());
+        return true;
       default:
         return false;
     }
+  }
+
+  // /compact: replace the conversation with a summary (ADR-0020). Unlike the automatic kind,
+  // nothing is kept verbatim, as in Claude Code; the transcript on screen stays.
+  private async compact(instructions: string) {
+    const s = this.style;
+    if (!this.history.length) {
+      this.note = "nothing to compact yet";
+      return this.render();
+    }
+    const abort = new AbortController();
+    this.running = { abort, started: Date.now(), prompt: "/compact" };
+    this.compacting = true;
+    this.startSpinner();
+    this.render();
+    try {
+      const r = await runCompaction({
+        provider: this.agent.provider,
+        model: this.agent.model,
+        items: this.history,
+        contextWindow: this.contextWindow ?? 32_768,
+        keepTokens: 0,
+        trigger: "manual",
+        scale: this.tokenScale,
+        session: this.session,
+        signal: abort.signal,
+        ...(instructions ? { instructions } : {}),
+        ...(this.hooks ? { hooks: this.hooks } : {}),
+        emit: (e) => this.onEvent(e),
+      });
+      this.history = r.items;
+      // SessionStart hooks see "compact" on the next prompt, as in Claude Code.
+      if (this.hooks) this.sessionStart = "compact";
+    } catch (e) {
+      if (abort.signal.aborted)
+        this.print([s.red("  ⎿ Compaction interrupted") + s.dim(" · the conversation is unchanged")]);
+      else this.print([s.red(`  ✗ could not compact: ${(e as Error).message}`)]);
+    } finally {
+      this.compacting = false;
+      this.running = undefined;
+      this.stopSpinner();
+    }
+    this.render();
+    if (this.queue.length) this.submit(this.queue.splice(0).join("\n\n"));
   }
 
   private async runPrompt(shown: string, prompt: string, slash: { name: string; args: string } | undefined) {
@@ -666,6 +733,7 @@ export class TuiApp {
         history: this.history,
         session: this.session,
         signal: abort.signal,
+        ...(this.contextWindow ? { contextWindow: this.contextWindow, tokenScale: this.tokenScale } : {}),
         ...(slash ? { slash } : {}),
         ...(this.hooks ? { hooks: this.hooks } : {}),
         ...(this.hooks && this.sessionStart ? { hookSessionStart: this.sessionStart } : {}),
@@ -680,6 +748,7 @@ export class TuiApp {
       });
       this.flushText();
       this.history = res.items;
+      this.tokenScale = res.tokenScale;
       if (res.stopReason === "max_turns") this.print([s.yellow(`  stopped after ${res.turns} turns`)]);
       if (res.stopReason === "hook_blocked" || res.stopReason === "hook_stopped") this.history = this.reload();
     } catch (e) {
@@ -787,6 +856,25 @@ export class TuiApp {
       case "warning":
         this.print([s.yellow(`  ! ${e.message}`)]);
         break;
+      case "compact":
+        if (e.phase === "start") {
+          this.flushText();
+          this.compacting = true;
+        } else {
+          this.compacting = false;
+          this.usage = addUsage(this.usage, e.usage);
+          this.lastInput = e.after;
+          const why = e.trigger === "auto" ? "the context was nearly full" : "you asked";
+          this.print([
+            ...(this.block === "none" ? [] : [""]),
+            s.dim(`✻ Conversation compacted (${why}): ~${fmt(e.before)} → ~${fmt(e.after)} tokens`),
+            s.dim("  The model now sees a summary of what came before; the transcript above is unchanged."),
+            "",
+          ]);
+          this.block = "none";
+          this.textStarted = false;
+        }
+        break;
       case "turn_end":
         this.usage = addUsage(this.usage, e.usage);
         if (e.usage.input) this.lastInput = e.usage.input + e.usage.cachedRead + e.usage.output;
@@ -867,7 +955,8 @@ export class TuiApp {
       if (this.running) {
         const secs = Math.floor((Date.now() - this.running.started) / 1000);
         const spin = this.opts.animate === false ? "✻" : (SPINNER[this.frame % SPINNER.length] as string);
-        lines.push(`${s.magenta(spin)} ${s.dim(`Working… (${secs}s · esc to interrupt)`)}`);
+        const what = this.compacting ? "Compacting the conversation…" : "Working…";
+        lines.push(`${s.magenta(spin)} ${s.dim(`${what} (${secs}s · esc to interrupt)`)}`);
       }
       if (this.explore) {
         const x = this.explore;
@@ -908,7 +997,14 @@ export class TuiApp {
           : mode === "bypassPermissions"
             ? s.red("bypass permissions on")
             : s.dim("? for help · ⇧⇥ modes");
-    const ctx = this.lastInput ? ` · ${fmt(this.lastInput)} context` : "";
+    const window = this.contextWindow;
+    const pct = window ? Math.round((this.lastInput / window) * 100) : 0;
+    // Near the limit, say how close automatic compaction is (ADR-0020).
+    const ctx = !this.lastInput
+      ? ""
+      : pct >= 50 && this.agent.autoCompact !== false
+        ? ` · ${pct}% context, compacts at ${Math.round(AUTO_COMPACT_FRACTION * 100)}%`
+        : ` · ${fmt(this.lastInput)} context`;
     const right = s.dim(`${this.modelLabel}${ctx}`);
     const left = `  ${modeText}`;
     const gap = Math.max(2, cols - 1 - visible(left) - visible(right));

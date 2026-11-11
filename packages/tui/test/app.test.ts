@@ -257,9 +257,12 @@ describe("TuiApp", () => {
     expect(vt.text()).toContain("❯ Model                  ollama:big  the next prompt re-reads the conversation");
     await type("\r");
     expect(vt.text()).toContain("❯ Model                  ollama:small");
-    // Project model and start mode, then your own model and retention settings.
-    await type("\x1b[B\x1b[B\r\x1b[B\r\r\x1b[B\r\x1b[B\x1b[B\r\x1b[B\r\x1b[B\r");
+    // Auto-compact off, project model and start mode, then your own model and retention settings.
+    await type("\x1b[B\x1b[B\r");
+    expect(vt.text()).toContain("❯ Auto-compact           off  summarises older turns at 75% of 8.0k tokens");
+    await type("\x1b[B\r\x1b[B\r\r\x1b[B\r\x1b[B\x1b[B\r\x1b[B\r\x1b[B\r");
     expect(saved).toEqual([
+      ["user", "autoCompact", false],
       ["project", "model", "ollama:big"],
       ["project", "permissions.defaultMode", "default"],
       ["project", "permissions.defaultMode", "acceptEdits"],
@@ -370,6 +373,28 @@ describe("TuiApp", () => {
       "main answer",
       "second",
     ]);
+  });
+
+  test("/compact replaces the conversation with a summary; the transcript stays and a resume continues from it", async () => {
+    const provider = new FakeProvider([say("main answer"), say("We talked about X."), say("next answer")]);
+    const { vt, type, session } = setup(provider, { contextWindow: 100_000 });
+    await type("/compact\r");
+    expect(vt.text()).toContain("nothing to compact yet");
+    await type("first\r");
+    await type("/compact focus on X\r");
+    expect(vt.text()).toContain("✻ Conversation compacted (you asked): ~");
+    expect(vt.text()).toContain("› first");
+    // The summariser was asked with the instructions and no tools.
+    expect(provider.requests[1]?.tools).toEqual([]);
+    expect(JSON.stringify(provider.requests[1]?.items)).toContain("The user asks: focus on X");
+    await type("second\r");
+    const sent = provider.requests[2]?.items ?? [];
+    expect(sent).toHaveLength(2);
+    expect(sent[0]?.kind === "text" && sent[0].text).toContain("We talked about X.");
+    expect(sent[0]?.kind === "text" && sent[0].text).toContain("- first");
+    expect(sent[1]).toEqual({ kind: "text", role: "user", text: "second" });
+    const { loadSession } = await import("@everything-harness/core");
+    expect(loadSession(session.path).items.length).toBe(3);
   });
 
   test("an edit shows a diff with line numbers, removed and added lines apart", async () => {
