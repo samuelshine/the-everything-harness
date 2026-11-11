@@ -173,6 +173,7 @@ export class TuiApp {
   private block: "none" | "text" | "tool" = "none"; // what was printed last in this reply
   private cacheDays: number;
   private side = 0; // /btw questions still being answered
+  private explore: { model: string; last: string; uses: number } | undefined; // a running subagent
   private readonly startedAt = Date.now();
 
   constructor(private readonly opts: TuiOptions) {
@@ -762,7 +763,15 @@ export class TuiApp {
         this.block = "tool";
         this.textStarted = false;
         break;
+      case "subagent":
+        if (e.phase === "tool") this.explore = { model: e.model, last: e.summary, uses: (this.explore?.uses ?? 0) + 1 };
+        else {
+          this.explore = undefined;
+          this.usage = addUsage(this.usage, e.usage);
+        }
+        break;
       case "tool_result":
+        this.explore = undefined;
         this.print(resultLines(e.name, this.callArgs.get(e.id), e.content, e.isError, s));
         this.callArgs.delete(e.id);
         break;
@@ -859,6 +868,12 @@ export class TuiApp {
         const secs = Math.floor((Date.now() - this.running.started) / 1000);
         const spin = this.opts.animate === false ? "✻" : (SPINNER[this.frame % SPINNER.length] as string);
         lines.push(`${s.magenta(spin)} ${s.dim(`Working… (${secs}s · esc to interrupt)`)}`);
+      }
+      if (this.explore) {
+        const x = this.explore;
+        lines.push(
+          s.dim(`  ⎿  ${x.model} · ${x.uses} tool use${x.uses === 1 ? "" : "s"} · ${x.last}`.slice(0, cols - 2)),
+        );
       }
       if (this.side) lines.push(s.magenta("  ※ answering your side question…"));
       for (const q of this.queue) lines.push(s.dim(`  queued: ${q.replace(/\s+/g, " ").slice(0, cols - 14)}`));

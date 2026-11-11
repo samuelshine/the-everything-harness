@@ -326,6 +326,29 @@ describe("TuiApp", () => {
     expect(asked).toEqual(["what is this?", "refactor everything"]);
   });
 
+  test("an explore subagent shows as one tool call with a Done line; its steps stay out of the transcript", async () => {
+    const explorer = new FakeProvider([callTool("Glob", { pattern: "*.txt" }), say("Two text files.")]);
+    const provider = new FakeProvider([
+      callTool("Task", { description: "count text files", prompt: "How many .txt files are there?" }),
+      say("There are two."),
+    ]);
+    const { vt, type } = setup(provider, {
+      agent: {
+        provider,
+        model: "fake",
+        cwd: temp(),
+        tools: builtinTools,
+        permissions: { mode: "default", allow: [], deny: [] },
+        explore: { provider: explorer, model: "small", label: "ollama:small" },
+      },
+    });
+    await type("how many?\r");
+    expect(vt.text()).toMatch(
+      /◆ Explore\(count text files\)\n {2}⎿ {2}Done \(1 tool use · 15 tokens · \d+s · ollama:small\)\n\n● There are two\./,
+    );
+    expect(vt.text()).not.toContain("Glob");
+  });
+
   test("/btw answers a side question without adding it to the conversation", async () => {
     const provider = new FakeProvider([say("main answer"), say("it is **blue**"), say("second answer")]);
     const { vt, type } = setup(provider);

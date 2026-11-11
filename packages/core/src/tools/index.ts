@@ -4,6 +4,7 @@ import { globTool, grepTool } from "./search";
 import type { Tool } from "./tool";
 
 export * from "./skill";
+export * from "./task";
 export * from "./tool";
 
 // Built-in tools, named as in Claude Code (ADR-0010).

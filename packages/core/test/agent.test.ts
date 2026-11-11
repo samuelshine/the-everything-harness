@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { readFileSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { type AgentEvent, type AgentOptions, runAgent } from "../src/agent";
 import { parseRules } from "../src/permissions";
@@ -297,5 +297,60 @@ describe("runAgent", () => {
     writeFileSync(join(cwd, "AGENTS.md"), "Always answer in haiku.");
     await go();
     expect(provider.requests[0]?.system).toContain("Always answer in haiku.");
+  });
+
+  test("Task hands a search to an explore subagent: read-only, its own context, only the report comes back", async () => {
+    const explorer = new FakeProvider([
+      callTool("Grep", { pattern: "secret" }),
+      callTool("Write", { file_path: "x.txt", content: "no" }),
+      callTool("Bash", { command: "touch y.txt" }),
+      say("Found it in a.txt:1."),
+    ]);
+    const { cwd, provider, events, go, log } = setup(
+      [
+        callTool("Task", { description: "find the secret", prompt: "Where is the secret defined?" }),
+        say("It is in a.txt."),
+      ],
+      { explore: { provider: explorer, model: "small", label: "ollama:small" } },
+    );
+    writeFileSync(join(cwd, "a.txt"), "secret = 1\n");
+    const res = await go();
+    expect(res.result).toBe("It is in a.txt.");
+    // The subagent ran on its own model and conversation, with read-only tools only.
+    expect(explorer.requests[0]?.model).toBe("small");
+    expect(explorer.requests[0]?.items).toHaveLength(1);
+    expect(JSON.stringify(explorer.requests[0]?.items[0])).toContain("Where is the secret defined?");
+    expect(explorer.requests[0]?.tools.map((t) => t.name)).toEqual(["Read", "Glob", "Grep", "Bash"]);
+    // Writing is impossible: Write is not offered and Bash runs in plan mode.
+    expect(existsSync(join(cwd, "x.txt"))).toBe(false);
+    expect(existsSync(join(cwd, "y.txt"))).toBe(false);
+    // The main conversation gets the report and a footer, not the search itself.
+    const result = provider.requests[1]?.items.at(-1) as { kind: string; content: string };
+    expect(result.kind).toBe("tool_result");
+    expect(result.content).toStartWith("Found it in a.txt:1.");
+    expect(result.content).toMatch(/\[explore: 3 tool uses · \d+ tokens · \d+s · ollama:small\]$/);
+    expect(provider.requests[1]?.items.some((i) => i.kind === "tool_call" && i.name === "Grep")).toBe(false);
+    // Progress for the UI, and the subagent's tokens counted in the run's total.
+    const sub = events.filter((e) => e.type === "subagent");
+    expect(sub.map((e) => (e.phase === "tool" ? e.summary : "done"))).toEqual([
+      "Grep /secret/ in .",
+      "Write",
+      "Run `touch y.txt`",
+      "done",
+    ]);
+    // A scripted reply reports 10 input tokens: one in the subagent, one in the main run.
+    expect((sub.at(-1) as { usage: { input: number } }).usage.input).toBe(10);
+    expect(res.usage.input).toBe(20);
+    // The subagent's steps are not in the session log; the Task call and its result are.
+    const names = log()
+      .filter((e) => e.type === "tool_call")
+      .map((e) => (e.data as { name: string }).name);
+    expect(names).toEqual(["Task"]);
+  });
+
+  test("without an explore model there is no Task tool", async () => {
+    const { provider, go } = setup([say("hi")]);
+    await go();
+    expect(provider.requests[0]?.tools.map((t) => t.name)).not.toContain("Task");
   });
 });

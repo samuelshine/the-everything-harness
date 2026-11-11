@@ -354,6 +354,26 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
         "choose a model listed with tools by `teh models`",
       );
     }
+    // Explore subagents (ADR-0019): roles.explore, else the installed model teh would pick for
+    // a small task, else the main model. "off" turns them off.
+    const exploreSpec =
+      startSettings.exploreModel.project ??
+      startSettings.exploreModel.user ??
+      (await localModels(makeProvider, installed).then(async (labels) => {
+        if (!labels.length) return undefined;
+        const list = installed ?? (await makeProvider("ollama").listModels());
+        const id = chooseModel(list, "S")?.id;
+        return id ? `ollama:${id}` : undefined;
+      })) ??
+      modelSpec;
+    let explore: { provider: Provider; model: string; label: string } | undefined;
+    if (exploreSpec !== "off") {
+      const er = parseModelRef(exploreSpec);
+      explore =
+        exploreSpec === modelSpec
+          ? { provider, model: ref.model, label: modelSpec }
+          : { provider: makeProvider(er.provider), model: er.model, label: exploreSpec };
+    }
     for (const note of probe.notes) io.err(`teh: warning: ${note}\n`);
 
     const skillRoute =
@@ -459,6 +479,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
           maxTurns,
           skills,
           skillListingChars: Math.max(4000, Math.round((probe.contextWindow ?? 0) * 0.04)),
+          ...(explore ? { explore } : {}),
         },
         modelLabel: modelSpec,
         session,
@@ -512,6 +533,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       ...(skillRoute ? { skillRoute } : {}),
       skills,
       skillListingChars: Math.max(4000, Math.round((probe.contextWindow ?? 0) * 0.04)),
+      ...(explore ? { explore } : {}),
       checkpoint: async ({ first, title }) =>
         (await store.snapshot(first ? "turn" : "step", session.id, first ? prompt : title)).sha,
     });

@@ -77,6 +77,10 @@ export function resultLines(name: string, args: unknown, content: string, isErro
       ...more,
     ];
   }
+  if (name === "Task") {
+    const foot = content.match(/\[explore: (.+)\]\s*$/);
+    return [result(s.dim(foot ? `Done (${foot[1]})` : "Done"), s)];
+  }
   if (name === "Read") return [result(s.dim(`Read ${plural(lines.length, "line")}`), s)];
   const n = lines.length;
   return [result(s.dim(`${head}${n > 1 ? ` (+${n - 1} lines)` : ""}`), s)];
