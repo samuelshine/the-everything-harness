@@ -7,7 +7,14 @@ export const PANEL_TABS = ["Status", "Config", "Usage", "Help"] as const;
 export type PanelTab = (typeof PANEL_TABS)[number];
 
 // A setting on the Config tab. Enter or Space moves it to its next value.
-export type ConfigItem = { label: string; value: string; hint?: string; change?: () => void };
+export type ConfigItem = {
+  label: string;
+  value: string;
+  hint?: string;
+  change?: () => void;
+  // A heading shown above this item: where the setting lives.
+  section?: string;
+};
 
 export type PanelContent = {
   status: [string, string][];
@@ -30,10 +37,11 @@ export function renderPanel(tab: PanelTab, selected: number, content: PanelConte
   else if (tab === "Help") body = content.help.map((l) => `  ${l}`);
   else {
     const w = Math.max(0, ...content.config.map((c) => c.label.length));
-    body = content.config.map((c, i) => {
+    body = content.config.flatMap((c, i) => {
       const mark = i === selected ? s.cyan("❯") : " ";
       const value = c.change ? s.bold(c.value) : c.value;
-      return `${mark} ${c.label.padEnd(w)}  ${value}${c.hint ? `  ${s.dim(c.hint)}` : ""}`;
+      const head = c.section ? [...(i > 0 ? [""] : []), `  ${s.dim(c.section)}`] : [];
+      return [...head, `${mark} ${c.label.padEnd(w)}  ${value}${c.hint ? `  ${s.dim(c.hint)}` : ""}`];
     });
     keys = `↑/↓ to select · Enter to change · ${keys}`;
   }

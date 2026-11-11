@@ -4,9 +4,9 @@
 // apply at once, since they can only make teh more careful.
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { type HookConfig, mergeHooks, parseHooks } from "./hooks";
-import { parseRules, type Rule } from "./permissions";
+import { PERMISSION_MODES, type PermissionMode, parseRules, type Rule } from "./permissions";
 
 export type SettingsScope = "user" | "project";
 
@@ -24,6 +24,19 @@ export type LoadedSettings = {
   // "cacheRetentionDays" (ADR-0018): days to keep each session's UI cache. User settings only,
   // since it is about the user's disk, not the project.
   cacheRetentionDays?: number;
+  // "cleanupPeriodDays" (ADR-0004, Claude Code's name): days to keep sessions nobody has
+  // touched. "checkpointRetentionDays": days to keep undo checkpoints; unset keeps them.
+  // User settings only, like cacheRetentionDays.
+  cleanupPeriodDays?: number;
+  checkpointRetentionDays?: number;
+  // "screen": "fullscreen" or "inline" (ADR-0018). User settings only.
+  screen?: "fullscreen" | "inline";
+  // "model": the model to use when none is given on the command line (ADR-0014). The
+  // project's wins over the user's. "roles": {"explore": model} for explore subagents.
+  model: { user?: string; project?: string };
+  exploreModel: { user?: string; project?: string };
+  // "permissions.defaultMode": the permission mode to start in. The project's wins.
+  defaultMode: { user?: PermissionMode; project?: PermissionMode };
   // "hooks" (ADR-0016). Project hooks run only once the folder is trusted.
   hooks: { user: HookConfig; project: HookConfig };
   // Files that were read, and problems with ones that could not be.
@@ -50,6 +63,9 @@ export function loadSettings(tehHome: string, projectRoot: string, home = homedi
     project: empty(),
     sandbox: { user: {}, project: {} },
     outputStyle: {},
+    model: {},
+    exploreModel: {},
+    defaultMode: {},
     hooks: { user: {}, project: {} },
     files: [],
     problems: [],
@@ -75,6 +91,30 @@ export function loadSettings(tehHome: string, projectRoot: string, home = homedi
     if (typeof retention === "number" && retention >= 0 && f.scope === "user") out.cacheRetentionDays = retention;
     else if (retention !== undefined && f.scope === "user")
       out.problems.push({ path, message: "cacheRetentionDays must be a number of days (0 or more)" });
+    const d = (data ?? {}) as Record<string, unknown>;
+    for (const key of ["cleanupPeriodDays", "checkpointRetentionDays"] as const) {
+      const n = d[key];
+      if (n === undefined || f.scope !== "user") continue;
+      if (typeof n === "number" && n >= 1) out[key] = n;
+      else out.problems.push({ path, message: `${key} must be a number of days (1 or more)` });
+    }
+    if (d.screen !== undefined && f.scope === "user") {
+      if (d.screen === "fullscreen" || d.screen === "inline") out.screen = d.screen;
+      else out.problems.push({ path, message: 'screen must be "fullscreen" or "inline"' });
+    }
+    // Claude Code's own "model" ("opus", "sonnet", …) names models teh cannot run, so it is
+    // read only from teh's files.
+    const tehFile = !path.split(/[\\/]/).includes(".claude");
+    if (tehFile && typeof d.model === "string" && d.model.trim()) out.model[f.scope] = d.model.trim();
+    else if (tehFile && d.model !== undefined) out.problems.push({ path, message: "model must be provider:model" });
+    const roles = d.roles as { explore?: unknown } | undefined;
+    if (typeof roles?.explore === "string" && roles.explore.trim()) out.exploreModel[f.scope] = roles.explore.trim();
+    else if (roles?.explore !== undefined) out.problems.push({ path, message: "roles.explore must be provider:model" });
+    const dm = (d.permissions as { defaultMode?: unknown } | undefined)?.defaultMode;
+    if (typeof dm === "string" && (PERMISSION_MODES as string[]).includes(dm))
+      out.defaultMode[f.scope] = dm as PermissionMode;
+    else if (dm !== undefined)
+      out.problems.push({ path, message: `permissions.defaultMode must be one of ${PERMISSION_MODES.join(", ")}` });
     const style = (data as { outputStyle?: unknown })?.outputStyle;
     if (typeof style === "string" && style.trim()) out.outputStyle[f.scope] = style.trim();
     else if (style !== undefined) out.problems.push({ path, message: "outputStyle must be a style name" });
@@ -139,10 +179,10 @@ export function setTrusted(tehHome: string, projectRoot: string, trusted: boolea
   writeFileSync(trustFile(tehHome), `${JSON.stringify({ projects: list.sort() }, null, 2)}\n`, { mode: 0o600 });
 }
 
-// Set one key in the person's own settings file, keeping everything else in it. Returns
-// false, changing nothing, when the file exists but is not a JSON object.
-export function setUserSetting(tehHome: string, key: string, value: unknown): boolean {
-  const path = join(tehHome, "settings.json");
+// Set one key in a settings file, keeping everything else in it. `key` may be a dotted path
+// ("permissions.defaultMode"); `undefined` removes it. Returns false, changing nothing, when
+// the file exists but is not a JSON object.
+export function setSetting(path: string, key: string, value: unknown): boolean {
   let data: Record<string, unknown> = {};
   if (existsSync(path)) {
     try {
@@ -153,8 +193,32 @@ export function setUserSetting(tehHome: string, key: string, value: unknown): bo
       return false;
     }
   }
-  data[key] = value;
-  mkdirSync(tehHome, { recursive: true, mode: 0o700 });
+  const parts = key.split(".");
+  let at = data;
+  for (const part of parts.slice(0, -1)) {
+    const next = at[part];
+    if (typeof next !== "object" || next === null || Array.isArray(next)) at[part] = {};
+    at = at[part] as Record<string, unknown>;
+  }
+  const last = parts[parts.length - 1] as string;
+  if (value === undefined) delete at[last];
+  else at[last] = value;
+  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
   return true;
+}
+
+// The person's own settings file.
+export function setUserSetting(tehHome: string, key: string, value: unknown): boolean {
+  return setSetting(join(tehHome, "settings.json"), key, value);
+}
+
+// This project's personal settings, .teh/settings.local.json, kept out of git like Claude
+// Code's settings.local.json.
+export function setProjectSetting(projectRoot: string, key: string, value: unknown): boolean {
+  const dir = join(projectRoot, ".teh");
+  const ignore = join(dir, ".gitignore");
+  mkdirSync(dir, { recursive: true });
+  if (!existsSync(ignore)) writeFileSync(ignore, "settings.local.json\n");
+  return setSetting(join(dir, "settings.local.json"), key, value);
 }

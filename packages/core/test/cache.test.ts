@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { existsSync, mkdirSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { pruneCaches, TranscriptCache } from "../src/cache";
+import { pruneCaches, pruneSessions, TranscriptCache } from "../src/cache";
 import { SessionLog } from "../src/session";
 import { tempDir } from "./helpers";
 
@@ -38,5 +38,23 @@ describe("TranscriptCache", () => {
     expect(pruneCaches(home, 10)).toEqual([]);
     mkdirSync(join(home, "projects", "empty"), { recursive: true });
     expect(pruneCaches(tempDir(), 3)).toEqual([]);
+  });
+
+  test("pruneSessions removes sessions idle past cleanupPeriodDays, with their caches", () => {
+    const home = tempDir();
+    const root = tempDir();
+    const old = new SessionLog(home, root, "local:test");
+    old.append("user_message", { text: "old" });
+    const fresh = new SessionLog(home, root, "local:test");
+    fresh.append("user_message", { text: "fresh" });
+    const c = new TranscriptCache(home, root);
+    c.append(old.id, ["x"]);
+    const long = new Date(Date.now() - 31 * DAY);
+    utimesSync(old.path, long, long);
+    expect(pruneSessions(home, 30)).toEqual([old.path]);
+    expect(existsSync(old.path)).toBe(false);
+    expect(existsSync(c.path(old.id))).toBe(false);
+    expect(existsSync(fresh.path)).toBe(true);
+    expect(pruneSessions(tempDir(), 30)).toEqual([]);
   });
 });

@@ -73,7 +73,9 @@ Option 3. The engine has a **model policy** component between the agent loop and
 
 **Amendment, 2026-11-11: no model pinned.** Starting teh without `--model`, `TEH_MODEL` or a resumed session used to be an error. It now runs triage for that one decision:
 - The rules sort the first prompt into S, M or L (length, files named, keywords, plan mode). This makes no model call, so it costs no tokens.
-- Among installed models that support tool calling, S takes the smallest, M the middle one and L the largest. Models under about 2 GB are used only when nothing larger is installed.
+- ~~Among installed models that support tool calling, S takes the smallest, M the middle one and L the largest.~~ Replaced the same day, because the model-routing eval (`evals/model-routing`) showed that size on disk is not capability. Choosing by size passed 58% of runs; the best single model passed 96%.
+- **Now:** among installed models that support tool calling and have eval results for the tier (at least 3 runs), teh takes the fastest one whose pass rate is within 2 points of the best. The built-in results come from that eval; your own, saved with `--save-scores`, replace them. When no installed model has results, it falls back to size. Models under about 2 GB are used only when nothing larger is installed.
+- **On the maintainer's machine** this picks gemma4:e4b for every tier, so routing matches the best single model but does not beat it. Routing would pay only with a model that is good enough on easy tasks and much cheaper than the best one.
 - The choice is made at session start and holds for the session (boundaries only), so the prompt cache is never thrown away mid-conversation. `/clear` starts a new session and chooses again.
 - The chosen model and the reason are shown. A pinned model always wins and skips all of this.
 

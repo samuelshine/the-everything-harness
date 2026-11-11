@@ -72,3 +72,31 @@ export function pruneCaches(home: string, days: number, now = Date.now()): strin
   }
   return removed;
 }
+
+export const DEFAULT_CLEANUP_PERIOD_DAYS = 30;
+
+// Delete sessions across all projects that nobody has written to for `days` days (ADR-0004),
+// with their UI caches. Returns the session files removed.
+export function pruneSessions(home: string, days: number, now = Date.now()): string[] {
+  const removed: string[] = [];
+  const projects = join(home, "projects");
+  if (!existsSync(projects)) return removed;
+  const cutoff = now - days * DAY_MS;
+  for (const project of readdirSync(projects)) {
+    const dir = join(projects, project, "sessions");
+    if (!existsSync(dir)) continue;
+    for (const name of readdirSync(dir)) {
+      if (!name.endsWith(".jsonl")) continue;
+      const p = join(dir, name);
+      try {
+        if (statSync(p).mtimeMs >= cutoff) continue;
+        rmSync(p, { force: true });
+        rmSync(join(projects, project, "cache", name.replace(/\.jsonl$/, ".transcript.jsonl")), { force: true });
+        removed.push(p);
+      } catch {
+        // Gone already.
+      }
+    }
+  }
+  return removed;
+}

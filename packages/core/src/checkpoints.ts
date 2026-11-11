@@ -107,7 +107,63 @@ export class CheckpointStore {
 
   async find(ref: string): Promise<Checkpoint | undefined> {
     if (!/^[0-9a-f]{4,40}$/i.test(ref)) return undefined;
-    return (await this.list(10_000)).find((c) => c.sha.startsWith(ref.toLowerCase()));
+    const all = await this.list(100_000);
+    const lower = ref.toLowerCase();
+    const hit = all.find((c) => c.sha.startsWith(lower));
+    if (hit) return hit;
+    // A checkpoint kept through a prune has a new id; sessions still name the old one.
+    const moved = Object.entries(this.remap()).find(([old]) => old.startsWith(lower))?.[1];
+    return moved ? all.find((c) => c.sha === moved) : undefined;
+  }
+
+  // Delete checkpoints older than `before` (ADR-0004). The history is one chain, so the ones
+  // kept are rewritten onto a new root with the same trees, messages and times; their old ids
+  // are recorded so rewinds named in session logs still find them. Returns how many went.
+  async prune(before: Date): Promise<number> {
+    if (this.unavailable() || !(await this.head())) return 0;
+    const all = await this.list(100_000); // newest first
+    const keep = all.filter((c) => c.time >= before);
+    const dropped = all.length - keep.length;
+    if (!dropped) return 0;
+    const map = this.remap();
+    if (!keep.length) {
+      await this.run(["update-ref", "-d", REF]);
+    } else {
+      let parent: string | undefined;
+      for (const c of [...keep].reverse()) {
+        const tree = (await this.run(["rev-parse", `${c.sha}^{tree}`])).trim();
+        const message = await this.run(["log", "-1", "--format=%B", c.sha]);
+        const stamp = `${Math.floor(c.time.getTime() / 1000)} +0000`;
+        const sha = (
+          await this.run(["commit-tree", tree, ...(parent ? ["-p", parent] : []), "-F", "-"], {
+            stdin: message,
+            env: { GIT_AUTHOR_DATE: stamp, GIT_COMMITTER_DATE: stamp },
+          })
+        ).trim();
+        map[c.sha] = sha;
+        parent = sha;
+      }
+      await this.run(["update-ref", REF, parent as string]);
+    }
+    // Old ids that now point at nothing are forgotten; chains of moves collapse to the latest.
+    const live = new Set(keep.map((c) => map[c.sha]));
+    const next: Record<string, string> = {};
+    for (const [old, now] of Object.entries(map)) {
+      const end = map[now] ?? now;
+      if (live.has(end)) next[old] = end;
+    }
+    writeFileSync(join(this.gitDir, "teh-remap.json"), `${JSON.stringify(next)}\n`);
+    await this.run(["reflog", "expire", "--expire=now", "--all"], { allowFail: true });
+    await this.run(["gc", "--prune=now", "--quiet"], { allowFail: true });
+    return dropped;
+  }
+
+  private remap(): Record<string, string> {
+    try {
+      return JSON.parse(readFileSync(join(this.gitDir, "teh-remap.json"), "utf8")) as Record<string, string>;
+    } catch {
+      return {};
+    }
   }
 
   // What restoring `target` would change, compared with `current` (a fresh snapshot).
@@ -178,7 +234,10 @@ export class CheckpointStore {
     return large;
   }
 
-  private async run(args: string[], opts: { stdin?: string; allowFail?: boolean; noGitDir?: boolean } = {}) {
+  private async run(
+    args: string[],
+    opts: { stdin?: string; allowFail?: boolean; noGitDir?: boolean; env?: Record<string, string> } = {},
+  ) {
     const env: Record<string, string> = {};
     for (const [k, v] of Object.entries(process.env)) if (v !== undefined && !k.startsWith("GIT_")) env[k] = v;
     Object.assign(env, {
@@ -190,6 +249,7 @@ export class CheckpointStore {
       GIT_TERMINAL_PROMPT: "0",
     });
     if (!opts.noGitDir) Object.assign(env, { GIT_DIR: this.gitDir, GIT_WORK_TREE: this.root });
+    if (opts.env) Object.assign(env, opts.env);
     const config = [
       "core.autocrlf=false",
       "core.safecrlf=false",

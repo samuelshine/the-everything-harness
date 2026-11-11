@@ -1,6 +1,6 @@
 // Argument parsing and dispatch, kept free of process globals so it can be tested.
 
-import { existsSync } from "node:fs";
+import { existsSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -10,10 +10,12 @@ import {
   type Checkpoint,
   CheckpointError,
   CheckpointStore,
+  capableModels,
   chooseModel,
   countHooks,
   createProvider,
   DEFAULT_CACHE_RETENTION_DAYS,
+  DEFAULT_CLEANUP_PERIOD_DAYS,
   DEFAULT_EMBED_MODEL,
   DEFAULT_STYLE,
   expandSkill,
@@ -24,6 +26,7 @@ import {
   isTrusted,
   type LoadedSession,
   listSessions,
+  loadModelScores,
   loadSettings,
   loadSkills,
   loadStyles,
@@ -36,6 +39,7 @@ import {
   parseModelRef,
   parseSlash,
   pruneCaches,
+  pruneSessions,
   type RestorePlan,
   ROUTER_MODES,
   type RouteResult,
@@ -44,6 +48,7 @@ import {
   SessionLog,
   type Skill,
   SkillRouter,
+  setProjectSetting,
   setTrusted,
   setUserSetting,
   similarNames,
@@ -133,6 +138,7 @@ Commands:
   hooks                         List hook commands from settings (Claude Code's "hooks" format)
   mcp                           Start the configured MCP servers and list their tools
   sessions                      List this project's sessions, newest first
+  sessions rm <id>              Delete a session and its cached view (its checkpoints stay)
   checkpoints                   List file snapshots taken before each run changed anything
   permissions                   Show the permission rules in effect and where each comes from
   trust [--revoke]              Let this project's own allow rules, hooks, skill grants and .mcp.json apply
@@ -160,6 +166,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   }
   if (positionals[0] === "models") return listModels(io, makeProvider);
   if (positionals[0] === "checkpoints") return listCheckpoints(io);
+  if (positionals[0] === "sessions" && positionals[1] === "rm") return removeSession(io, positionals[2]);
   if (positionals[0] === "sessions") return printSessions(io);
   if (positionals[0] === "skills") return printSkills(io);
   if (positionals[0] === "styles") return printStyles(io);
@@ -204,8 +211,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   const format = (v["output-format"] ?? "text") as OutputFormat;
   if (!OUTPUT_FORMATS.includes(format))
     return usageError(io, `--output-format must be one of ${OUTPUT_FORMATS.join(", ")}`);
-  const mode = (v["permission-mode"] ?? "default") as PermissionMode;
-  if (!PERMISSION_MODES.includes(mode))
+  const flagMode = v["permission-mode"] as PermissionMode | undefined;
+  if (flagMode !== undefined && !PERMISSION_MODES.includes(flagMode))
     return usageError(io, `--permission-mode must be one of ${PERMISSION_MODES.join(", ")}`);
   const maxTurns = v["max-turns"] === undefined ? 50 : Number(v["max-turns"]);
   if (!Number.isInteger(maxTurns) || maxTurns < 1) return usageError(io, "--max-turns must be a positive integer");
@@ -218,9 +225,18 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   // was started in. Settings, skills and checkpoints still come from the repository root.
   const dir = resolve(io.cwd);
   const home = tehHome(io.env);
-  // Session caches past their retention go first (ADR-0018). Conversations are kept.
-  const cacheDays = loadSettings(home, root, userHome(io)).cacheRetentionDays ?? DEFAULT_CACHE_RETENTION_DAYS;
+  const startSettings = loadSettings(home, root, userHome(io));
+  // Cleanup (ADR-0004, ADR-0018): UI caches after a few idle days, whole sessions after
+  // cleanupPeriodDays, and checkpoints only when checkpointRetentionDays is set.
+  const cacheDays = startSettings.cacheRetentionDays ?? DEFAULT_CACHE_RETENTION_DAYS;
   pruneCaches(home, cacheDays);
+  pruneSessions(home, startSettings.cleanupPeriodDays ?? DEFAULT_CLEANUP_PERIOD_DAYS);
+  if (startSettings.checkpointRetentionDays) {
+    const days = startSettings.checkpointRetentionDays;
+    await pruneCheckpointsDaily(new CheckpointStore(home, root), days).catch((e) =>
+      io.err(`teh: warning: could not prune old checkpoints: ${(e as Error).message}\n`),
+    );
+  }
   // Starting the UI in a folder for the first time asks whether to trust it (ADR-0018).
   const term = interactive && io.terminal ? io.terminal() : undefined;
   if (term && !isTrusted(home, root) && root !== userHome(io)) {
@@ -235,6 +251,18 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     if (answer === "quit") return 0;
     if (answer === "trust") setTrusted(home, root, true);
   }
+  // The mode to start in: the flag, else permissions.defaultMode (ADR-0003). A project may
+  // choose plan or default; acceptEdits only once the folder is trusted; bypass never.
+  const trustedNow = isTrusted(home, root);
+  const projectMode = startSettings.defaultMode.project;
+  const projectModeOk =
+    projectMode === "default" || projectMode === "plan" || (projectMode === "acceptEdits" && trustedNow);
+  if (projectMode && !projectModeOk)
+    io.err(
+      `teh: warning: ignoring this project's permissions.defaultMode "${projectMode}" (${trustedNow ? "a project cannot bypass permissions" : "the folder is not trusted"})\n`,
+    );
+  const mode: PermissionMode =
+    flagMode ?? (projectModeOk ? projectMode : undefined) ?? startSettings.defaultMode.user ?? "default";
   const loaded = loadSkills(home, root, userHome(io));
   for (const p of loaded.problems) io.err(`teh: warning: skipped ${p.path}: ${p.message}\n`);
   const perms = runPermissions(io, {
@@ -286,8 +314,10 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
 
   // No pinned model: teh picks one for the task from the local models (ADR-0014). The
   // rules cost no tokens, and the choice holds for the session so its cache is kept.
-  let modelSpec = v.model ?? resumed?.model ?? io.env.TEH_MODEL;
+  let modelSpec =
+    v.model ?? resumed?.model ?? io.env.TEH_MODEL ?? startSettings.model.project ?? startSettings.model.user;
   let installed: ModelInfo[] | undefined;
+  const scores = loadModelScores(home);
   let autoReason: string | undefined;
   if (!modelSpec) {
     try {
@@ -299,15 +329,15 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       return 2;
     }
     const sorted = triage(typed, { planMode: mode === "plan" });
-    const choice = chooseModel(installed, sorted.tier);
+    const choice = chooseModel(installed, sorted.tier, scores);
     if (!choice) {
       io.err(
         "teh: no model selected, and no installed model supports tool calling\n  fix: `ollama pull qwen2.5:14b`, or pass --model ollama:<name>; `teh models` lists local models\n",
       );
       return 2;
     }
-    modelSpec = `ollama:${choice.id}`;
-    autoReason = `${sorted.tier}: ${sorted.reason}`;
+    modelSpec = `ollama:${choice.model.id}`;
+    autoReason = `${sorted.tier}: ${sorted.reason}${choice.basis === "measured" ? "; best measured for this size" : ""}`;
   }
 
   const mcpPlan = planMcp(io, v["mcp-config"] ?? [], v["strict-mcp-config"] ?? false);
@@ -325,6 +355,26 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
         `${modelSpec} does not support tool calling`,
         "choose a model listed with tools by `teh models`",
       );
+    }
+    // Explore subagents (ADR-0019): roles.explore, else the installed model teh would pick for
+    // a small task, else the main model. "off" turns them off.
+    const exploreSpec =
+      startSettings.exploreModel.project ??
+      startSettings.exploreModel.user ??
+      (await localModels(makeProvider, installed).then(async (labels) => {
+        if (!labels.length) return undefined;
+        const list = installed ?? (await makeProvider("ollama").listModels());
+        const id = chooseModel(list, "S", scores)?.model.id;
+        return id ? `ollama:${id}` : undefined;
+      })) ??
+      modelSpec;
+    let explore: { provider: Provider; model: string; label: string } | undefined;
+    if (exploreSpec !== "off") {
+      const er = parseModelRef(exploreSpec);
+      explore =
+        exploreSpec === modelSpec
+          ? { provider, model: ref.model, label: modelSpec }
+          : { provider: makeProvider(er.provider), model: er.model, label: exploreSpec };
     }
     for (const note of probe.notes) io.err(`teh: warning: ${note}\n`);
 
@@ -365,11 +415,34 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       const app: TuiApp = new TuiApp({
         terminal: term,
         color: !io.env.NO_COLOR && io.env.TERM !== "dumb",
-        fullscreen: !v.inline && io.env.TERM !== "dumb",
+        fullscreen: !v.inline && io.env.TERM !== "dumb" && startSettings.screen !== "inline",
         transcript: new TranscriptCache(home, dir),
         cacheDays,
-        onCacheDays: (days) => {
-          setUserSetting(home, "cacheRetentionDays", days);
+        saveSetting: (scope, key, value) => {
+          const ok = scope === "user" ? setUserSetting(home, key, value) : setProjectSetting(root, key, value);
+          if (!ok) io.err(`teh: warning: could not save ${key}: the settings file is not a JSON object\n`);
+        },
+        settings: {
+          model: startSettings.model,
+          defaultMode: startSettings.defaultMode,
+          ...(startSettings.cleanupPeriodDays ? { cleanupPeriodDays: startSettings.cleanupPeriodDays } : {}),
+          ...(startSettings.checkpointRetentionDays
+            ? { checkpointRetentionDays: startSettings.checkpointRetentionDays }
+            : {}),
+        },
+        models: await localModels(makeProvider, installed),
+        useModel: async (label: string) => {
+          const r = parseModelRef(label);
+          const p = makeProvider(r.provider);
+          const info = await p.probe(r.model);
+          if (!info.supportsTools) throw new Error(`${label} does not support tool calling`);
+          return {
+            provider: p,
+            model: r.model,
+            label,
+            ...(info.contextWindow ? { contextWindow: info.contextWindow } : {}),
+            reason: "",
+          };
         },
         ...(probe.contextWindow ? { contextWindow: probe.contextWindow } : {}),
         statusInfo: [
@@ -382,7 +455,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
           ? {
               pickModel: async (first: string, planMode: boolean) => {
                 const sorted = triage(first, { planMode });
-                const id = chooseModel(installed, sorted.tier)?.id ?? ref.model;
+                const choice = chooseModel(installed, sorted.tier, scores);
+                const id = choice?.model.id ?? ref.model;
                 const chosen = makeProvider("ollama");
                 const info = await chosen.probe(id);
                 return {
@@ -390,7 +464,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
                   model: id,
                   label: `ollama:${id}`,
                   ...(info.contextWindow ? { contextWindow: info.contextWindow } : {}),
-                  reason: `${sorted.tier}: ${sorted.reason}`,
+                  reason: `${sorted.tier}: ${sorted.reason}${choice?.basis === "measured" ? "; best measured" : ""}`,
                 };
               },
             }
@@ -408,6 +482,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
           maxTurns,
           skills,
           skillListingChars: Math.max(4000, Math.round((probe.contextWindow ?? 0) * 0.04)),
+          ...(explore ? { explore } : {}),
         },
         modelLabel: modelSpec,
         session,
@@ -461,6 +536,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       ...(skillRoute ? { skillRoute } : {}),
       skills,
       skillListingChars: Math.max(4000, Math.round((probe.contextWindow ?? 0) * 0.04)),
+      ...(explore ? { explore } : {}),
       checkpoint: async ({ first, title }) =>
         (await store.snapshot(first ? "turn" : "step", session.id, first ? prompt : title)).sha,
     });
@@ -702,6 +778,18 @@ async function restore(io: Io, ref: string | undefined, yes: boolean): Promise<n
   }
 }
 
+function removeSession(io: Io, ref: string | undefined): number {
+  if (!ref) return usageError(io, "usage: teh sessions rm <id>");
+  const home = tehHome(io.env);
+  const dir = resolve(io.cwd);
+  const found = findSession(home, dir, ref);
+  if (!found) return usageError(io, `no single session matches ${ref}; \`teh sessions\` lists them`);
+  rmSync(found.path, { force: true });
+  rmSync(new TranscriptCache(home, dir).path(found.id), { force: true });
+  io.out(`Deleted session ${found.id.slice(0, 18)} (${found.prompts} prompt${found.prompts === 1 ? "" : "s"}).\n`);
+  return 0;
+}
+
 function printSessions(io: Io): number {
   const root = resolve(io.cwd);
   const all = listSessions(tehHome(io.env), root);
@@ -717,6 +805,27 @@ function printSessions(io: Io): number {
     io.out(`  ${s.id.slice(0, 18)}  ${when(s.updated)}  ${n.padEnd(10)}  ${(s.model ?? "").padEnd(22)}  ${label}\n`);
   }
   return 0;
+}
+
+// Installed models able to run the agent, as provider:model labels; empty when Ollama is down.
+async function localModels(makeProvider: (name: string) => Provider, known?: ModelInfo[]): Promise<string[]> {
+  try {
+    const list = known ?? (await makeProvider("ollama").listModels());
+    return capableModels(list).map((m) => `ollama:${m.id}`);
+  } catch {
+    return [];
+  }
+}
+
+// Checkpoint pruning rewrites history and runs git gc, so it runs at most once a day.
+async function pruneCheckpointsDaily(store: CheckpointStore, days: number): Promise<number> {
+  const stamp = join(store.gitDir, "teh-pruned-at");
+  const DAY = 24 * 60 * 60 * 1000;
+  if (!existsSync(store.gitDir)) return 0;
+  if (existsSync(stamp) && Date.now() - statSync(stamp).mtimeMs < DAY) return 0;
+  const n = await store.prune(new Date(Date.now() - days * DAY));
+  writeFileSync(stamp, `${new Date().toISOString()}\n`);
+  return n;
 }
 
 // The home directory skills are read from, overridable for tests through HOME.

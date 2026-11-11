@@ -230,6 +230,73 @@ describe("teh cli", () => {
     expect(none.err).toContain("teh models");
   });
 
+  test("settings choose the model and the start mode; a project may not loosen the mode until trusted", async () => {
+    const cwd = temp();
+    const home = temp();
+    writeFileSync(
+      join(home, "settings.json"),
+      JSON.stringify({ model: "fake:fake", permissions: { defaultMode: "plan" } }),
+    );
+    // No --model: the user's setting is used. plan mode from settings denies the write.
+    const plan = await call(["-p", "make it"], {
+      cwd,
+      home,
+      turns: [callTool("Write", { file_path: "a.txt", content: "x" }), say("ok")],
+    });
+    expect(plan.code).toBe(0);
+    expect(existsSync(join(cwd, "a.txt"))).toBe(false);
+    // A project asking for acceptEdits is ignored while the folder is untrusted…
+    mkdirSync(join(cwd, ".teh"));
+    writeFileSync(join(cwd, ".teh", "settings.json"), JSON.stringify({ permissions: { defaultMode: "acceptEdits" } }));
+    const untrusted = await call(["-p", "make it"], {
+      cwd,
+      home,
+      turns: [callTool("Write", { file_path: "a.txt", content: "x" }), say("ok")],
+    });
+    expect(untrusted.err).toContain(
+      'ignoring this project\'s permissions.defaultMode "acceptEdits" (the folder is not trusted)',
+    );
+    expect(existsSync(join(cwd, "a.txt"))).toBe(false);
+    // …and applies once it is trusted. The flag still wins over both.
+    await call(["trust"], { cwd, home });
+    await call(["-p", "make it"], {
+      cwd,
+      home,
+      turns: [callTool("Write", { file_path: "a.txt", content: "x" }), say("ok")],
+    });
+    expect(readFileSync(join(cwd, "a.txt"), "utf8")).toBe("x");
+    await call(["-p", "--permission-mode", "plan", "make it"], {
+      cwd,
+      home,
+      turns: [callTool("Write", { file_path: "b.txt", content: "x" }), say("ok")],
+    });
+    expect(existsSync(join(cwd, "b.txt"))).toBe(false);
+  });
+
+  test("teh sessions rm deletes one session; sessions idle past cleanupPeriodDays go at startup", async () => {
+    const cwd = temp();
+    const home = temp();
+    await call(["-p", "--model", "fake:fake", "first"], { cwd, home, turns: [say("a")] });
+    await call(["-p", "--model", "fake:fake", "second"], { cwd, home, turns: [say("b")] });
+    const listed = (await call(["sessions"], { cwd, home })).out;
+    const id = (prompt: string) => listed.match(new RegExp(`^ {2}(\\S+) .* ${prompt}$`, "m"))?.[1] as string;
+    expect(id("first")).toBeDefined();
+    const rm = await call(["sessions", "rm", id("first")], { cwd, home });
+    expect(rm.out).toContain("Deleted session");
+    expect((await call(["sessions"], { cwd, home })).out).not.toMatch(/ first\n/);
+    expect((await call(["sessions", "rm", "nope"], { cwd, home })).code).toBe(2);
+    // Age the other one past a 7-day cleanup period; the next start removes it.
+    const dir = join(home, "projects", readdirSync(join(home, "projects"))[0] as string, "sessions");
+    const [file] = readdirSync(dir);
+    const old = new Date(Date.now() - 8 * 24 * 60 * 60 * 1000);
+    utimesSync(join(dir, file as string), old, old);
+    writeFileSync(join(home, "settings.json"), JSON.stringify({ cleanupPeriodDays: 7 }));
+    await call(["-p", "--model", "fake:fake", "third"], { cwd, home, turns: [say("c")] });
+    const after = (await call(["sessions"], { cwd, home })).out;
+    expect(after).not.toMatch(/ second\n/);
+    expect(after).toMatch(/ third\n/);
+  });
+
   test("each directory is its own project: sessions do not cross folders, even inside one repository", async () => {
     const repo = temp();
     mkdirSync(join(repo, ".git"));

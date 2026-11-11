@@ -56,8 +56,14 @@ export type TuiOptions = {
   transcript?: { load(sessionId: string): string[] | undefined; append(sessionId: string, lines: string[]): void };
   // How long that cache is kept, for the note shown when it has expired.
   cacheDays?: number;
-  // Saves a new retention chosen on the settings panel's Config tab.
-  onCacheDays?: (days: number) => void;
+  // Saves a setting changed on the panel's Config tab: in ~/.teh/settings.json ("user") or
+  // in this project's .teh/settings.local.json ("project"). `undefined` removes the key.
+  saveSetting?: (scope: "user" | "project", key: string, value: unknown) => void;
+  // What those files say now, for the Config tab.
+  settings?: SavedSettings;
+  // Installed models the Config tab can switch to ("ollama:qwen2.5:14b"), and how to start one.
+  models?: string[];
+  useModel?: (label: string) => Promise<ModelPick>;
   // Extra rows for the settings panel's Status tab (project folder, trust, MCP servers…).
   statusInfo?: [string, string][];
   // The model's context window, for the Usage tab.
@@ -70,6 +76,13 @@ export type TuiOptions = {
   escapeDelayMs?: number;
   // Injected for tests.
   run?: (opts: AgentOptions) => Promise<AgentResult>;
+};
+
+export type SavedSettings = {
+  model?: { user?: string | undefined; project?: string | undefined };
+  defaultMode?: { user?: PermissionMode | undefined; project?: PermissionMode | undefined };
+  cleanupPeriodDays?: number | undefined;
+  checkpointRetentionDays?: number | undefined;
 };
 
 export type ModelPick = {
@@ -110,13 +123,25 @@ const SCROLL_KEYS: Partial<Record<Key["kind"], ["line" | "page" | "end", 1 | -1]
   bottom: ["end", -1],
 };
 const CACHE_DAY_CHOICES = [1, 3, 7, 14, 30];
+const SESSION_DAY_CHOICES = [7, 14, 30, 60, 90];
+const CHECKPOINT_DAY_CHOICES = [undefined, 7, 14, 30, 90];
+const START_MODES: PermissionMode[] = ["default", "acceptEdits", "plan"];
+const days = (n: number | undefined, none = "forever") => (n === undefined ? none : `${n} day${n === 1 ? "" : "s"}`);
+// The value after `current` in `choices`, wrapping round.
+function next<T>(choices: T[], current: T): T {
+  return choices[(choices.indexOf(current) + 1) % choices.length] as T;
+}
 const BTW_SYSTEM =
   "The user is asking a quick side question while working with a coding agent. Answer it briefly and directly from the conversation so far and what you know. You have no tools here; do not try to call any.";
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 export class TuiApp {
   private readonly style: Style;
-  private readonly renderer: Screen;
+  private renderer: Screen;
+  private fullscreen: boolean;
+  // Everything committed to the transcript, so the screen can be switched mid-session.
+  private shownLines: string[] = [];
+  private saved: SavedSettings;
   private readonly keys = new KeyParser();
   private readonly editor = new Editor();
   private history: Item[];
@@ -148,17 +173,14 @@ export class TuiApp {
   private block: "none" | "text" | "tool" = "none"; // what was printed last in this reply
   private cacheDays: number;
   private side = 0; // /btw questions still being answered
+  private explore: { model: string; last: string; uses: number } | undefined; // a running subagent
   private readonly startedAt = Date.now();
 
   constructor(private readonly opts: TuiOptions) {
     this.style = makeStyle(opts.color);
-    this.renderer = opts.fullscreen
-      ? new FullscreenRenderer(opts.terminal, {
-          header: (cols) => this.header(cols),
-          dim: this.style.dim,
-          mouse: true,
-        })
-      : new InlineRenderer(opts.terminal);
+    this.fullscreen = opts.fullscreen ?? false;
+    this.renderer = this.makeRenderer(this.fullscreen);
+    this.saved = structuredClone(opts.settings ?? {});
     this.agent = { ...opts.agent };
     this.modelLabel = opts.modelLabel;
     this.contextWindow = opts.contextWindow;
@@ -187,7 +209,7 @@ export class TuiApp {
     this.cleanups.push(t.onData((d) => this.onData(d)));
     this.cleanups.push(t.onResize(() => this.renderer.redraw()));
     this.renderer.enter?.();
-    this.renderer.commit(this.banner());
+    this.commit(this.banner());
     if (this.history.length) this.showEarlier();
     const done = new Promise<number>((resolve) => {
       this.finished = resolve;
@@ -320,37 +342,131 @@ export class TuiApp {
   }
 
   private configItems(): ConfigItem[] {
-    const save = this.opts.onCacheDays;
-    return [
+    const save = this.opts.saveSetting;
+    const set = (scope: "user" | "project", key: string, value: unknown) => {
+      save?.(scope, key, value);
+    };
+    const models = this.opts.models ?? [];
+    const saved = this.saved;
+    const items: ConfigItem[] = [
       {
+        section: "This session",
         label: "Permission mode",
         value: this.permissions.mode,
         hint: "also Shift+Tab",
         change: () => this.cycleMode(),
       },
       {
-        label: "Session cache kept",
-        value: `${this.cacheDays} day${this.cacheDays === 1 ? "" : "s"}`,
-        hint: save ? "saved to your settings" : "set cacheRetentionDays in ~/.teh/settings.json",
-        ...(save
-          ? {
-              change: () => {
-                const i = CACHE_DAY_CHOICES.indexOf(this.cacheDays);
-                this.cacheDays = CACHE_DAY_CHOICES[(i + 1) % CACHE_DAY_CHOICES.length] as number;
-                save(this.cacheDays);
-              },
-            }
+        label: "Model",
+        value: this.modelLabel,
+        hint: this.modelReason
+          ? `chosen by teh (${this.modelReason})`
+          : models.length > 1 && this.opts.useModel
+            ? this.history.length
+              ? "the next prompt re-reads the conversation"
+              : this.opts.pickModel && !this.picked
+                ? "or teh chooses on your first prompt"
+                : ""
+            : "no other installed model",
+        ...(models.length > 1 && this.opts.useModel
+          ? { change: () => void this.switchModel(next(models, this.modelLabel)) }
           : {}),
       },
       {
-        label: "Model",
-        value: this.modelLabel,
-        hint: this.opts.pickModel
-          ? `chosen per session${this.modelReason ? ` (${this.modelReason})` : ""}`
-          : "pinned with --model",
+        label: "Screen",
+        value: this.fullscreen ? "full screen" : "inline",
+        hint: save ? "also saved as your default" : "",
+        change: () => {
+          this.setScreen(!this.fullscreen);
+          set("user", "screen", this.fullscreen ? undefined : "inline");
+        },
       },
-      { label: "Screen", value: this.opts.fullscreen ? "full screen" : "inline", hint: "--inline switches" },
     ];
+    if (!save) return items;
+    const auto = "teh chooses";
+    const yours = "your default";
+    items.push(
+      {
+        section: "This project · .teh/settings.local.json",
+        label: "Model",
+        value: saved.model?.project ?? yours,
+        change: () => {
+          const v = next([yours, ...models], saved.model?.project ?? yours);
+          saved.model = { ...saved.model, project: v === yours ? undefined : v };
+          set("project", "model", saved.model.project);
+        },
+      },
+      {
+        label: "Start in mode",
+        value: saved.defaultMode?.project ?? yours,
+        hint: saved.defaultMode?.project === "acceptEdits" ? "only while the folder is trusted" : "",
+        change: () => {
+          const v = next<string>([yours, ...START_MODES], saved.defaultMode?.project ?? yours);
+          saved.defaultMode = { ...saved.defaultMode, project: v === yours ? undefined : (v as PermissionMode) };
+          set("project", "permissions.defaultMode", saved.defaultMode.project);
+        },
+      },
+      {
+        section: "You · ~/.teh/settings.json",
+        label: "Model",
+        value: saved.model?.user ?? auto,
+        change: () => {
+          const v = next([auto, ...models], saved.model?.user ?? auto);
+          saved.model = { ...saved.model, user: v === auto ? undefined : v };
+          set("user", "model", saved.model.user);
+        },
+      },
+      {
+        label: "Start in mode",
+        value: saved.defaultMode?.user ?? "default",
+        change: () => {
+          const v = next(START_MODES, saved.defaultMode?.user ?? "default");
+          saved.defaultMode = { ...saved.defaultMode, user: v === "default" ? undefined : v };
+          set("user", "permissions.defaultMode", saved.defaultMode.user);
+        },
+      },
+      {
+        label: "Keep screen cache",
+        value: days(this.cacheDays),
+        change: () => {
+          this.cacheDays = next(CACHE_DAY_CHOICES, this.cacheDays);
+          set("user", "cacheRetentionDays", this.cacheDays);
+        },
+      },
+      {
+        label: "Keep sessions",
+        value: days(saved.cleanupPeriodDays ?? 30),
+        change: () => {
+          saved.cleanupPeriodDays = next(SESSION_DAY_CHOICES, saved.cleanupPeriodDays ?? 30);
+          set("user", "cleanupPeriodDays", saved.cleanupPeriodDays === 30 ? undefined : saved.cleanupPeriodDays);
+        },
+      },
+      {
+        label: "Keep undo checkpoints",
+        value: days(saved.checkpointRetentionDays),
+        change: () => {
+          saved.checkpointRetentionDays = next(CHECKPOINT_DAY_CHOICES, saved.checkpointRetentionDays);
+          set("user", "checkpointRetentionDays", saved.checkpointRetentionDays);
+        },
+      },
+    );
+    return items;
+  }
+
+  private async switchModel(label: string) {
+    const use = this.opts.useModel;
+    if (!use) return;
+    try {
+      const pick = await use(label);
+      this.agent = { ...this.agent, provider: pick.provider, model: pick.model };
+      this.modelLabel = pick.label;
+      this.contextWindow = pick.contextWindow ?? this.contextWindow;
+      this.modelReason = "";
+      this.picked = true;
+    } catch (e) {
+      this.note = `could not switch to ${label}: ${(e as Error).message}`;
+    }
+    this.render();
   }
 
   private panelContent(): PanelContent {
@@ -381,7 +497,7 @@ export class TuiApp {
         "Enter send · Shift+Enter, Alt+Enter or \\ then Enter: new line · ↑/↓ history",
         "Esc interrupt · Shift+Tab permission mode · Ctrl+C clear, twice to quit · Ctrl+D quit",
         "Typing while teh works queues your message for when it finishes.",
-        ...(this.opts.fullscreen
+        ...(this.fullscreen
           ? ["Scroll: wheel, PgUp/PgDn, Shift+↑/↓, Ctrl+Home/End · select text with Shift (Option on macOS)"]
           : []),
         s.bold("Commands"),
@@ -517,6 +633,7 @@ export class TuiApp {
         this.sessionStart = "clear";
         this.picked = false;
         this.renderer.reset?.();
+        this.shownLines = [];
         this.usage = emptyUsage();
         this.lastInput = 0;
         this.print(["", s.dim("  (new conversation)"), ""]);
@@ -646,7 +763,15 @@ export class TuiApp {
         this.block = "tool";
         this.textStarted = false;
         break;
+      case "subagent":
+        if (e.phase === "tool") this.explore = { model: e.model, last: e.summary, uses: (this.explore?.uses ?? 0) + 1 };
+        else {
+          this.explore = undefined;
+          this.usage = addUsage(this.usage, e.usage);
+        }
+        break;
       case "tool_result":
+        this.explore = undefined;
         this.print(resultLines(e.name, this.callArgs.get(e.id), e.content, e.isError, s));
         this.callArgs.delete(e.id);
         break;
@@ -744,6 +869,12 @@ export class TuiApp {
         const spin = this.opts.animate === false ? "✻" : (SPINNER[this.frame % SPINNER.length] as string);
         lines.push(`${s.magenta(spin)} ${s.dim(`Working… (${secs}s · esc to interrupt)`)}`);
       }
+      if (this.explore) {
+        const x = this.explore;
+        lines.push(
+          s.dim(`  ⎿  ${x.model} · ${x.uses} tool use${x.uses === 1 ? "" : "s"} · ${x.last}`.slice(0, cols - 2)),
+        );
+      }
       if (this.side) lines.push(s.magenta("  ※ answering your side question…"));
       for (const q of this.queue) lines.push(s.dim(`  queued: ${q.replace(/\s+/g, " ").slice(0, cols - 14)}`));
       if (this.panel) {
@@ -796,8 +927,37 @@ export class TuiApp {
 
   // Print lines into the transcript, and keep them in the session's cache.
   private print(lines: string[]) {
-    this.renderer.commit(lines);
+    this.commit(lines);
     this.opts.transcript?.append(this.session.id, lines);
+  }
+
+  private commit(lines: string[]) {
+    this.shownLines.push(...lines);
+    if (this.shownLines.length > 20_000) this.shownLines.splice(0, this.shownLines.length - 20_000);
+    this.renderer.commit(lines);
+  }
+
+  private makeRenderer(full: boolean): Screen {
+    return full
+      ? new FullscreenRenderer(this.opts.terminal, {
+          header: (cols) => this.header(cols),
+          dim: this.style.dim,
+          mouse: true,
+        })
+      : new InlineRenderer(this.opts.terminal);
+  }
+
+  // Switch between full screen and inline without losing the conversation on screen.
+  private setScreen(full: boolean) {
+    if (full === this.fullscreen) return;
+    const old = this.renderer;
+    old.setLive([]);
+    old.flush();
+    old.leave?.();
+    this.fullscreen = full;
+    this.renderer = this.makeRenderer(full);
+    this.renderer.enter?.();
+    this.renderer.commit(this.shownLines);
   }
 
   // A resumed session: its cached transcript as it was shown, or, once the cache has
@@ -806,7 +966,7 @@ export class TuiApp {
     const s = this.style;
     const cached = this.opts.transcript?.load(this.session.id);
     if (cached?.length) {
-      this.renderer.commit([s.dim("  ── earlier in this session ──"), ...cached, s.dim("  ── resumed ──"), ""]);
+      this.commit([s.dim("  ── earlier in this session ──"), ...cached, s.dim("  ── resumed ──"), ""]);
       return;
     }
     const days = this.cacheDays;

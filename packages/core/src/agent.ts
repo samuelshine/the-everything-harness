@@ -13,6 +13,7 @@ import type { SessionLog } from "./session";
 import { type Skill, skillListing } from "./skills";
 import type { OutputStyle } from "./styles";
 import { skillTool } from "./tools/skill";
+import { EXPLORE_BRIEF, EXPLORE_TOOLS, type ExploreRequest, taskTool } from "./tools/task";
 import type { Access, Tool, ToolContext, ToolResult } from "./tools/tool";
 import { ToolInputError } from "./tools/tool";
 import { addUsage, emptyUsage, type Item, ProviderError, type StopReason, type Usage } from "./types";
@@ -36,7 +37,10 @@ export type AgentEvent =
   | { type: "warning"; message: string }
   // Something a hook wants the person to see: systemMessage, a failure, a blocked prompt.
   | { type: "hook"; event: HookEvent; message: string }
-  | { type: "turn_end"; usage: Usage };
+  | { type: "turn_end"; usage: Usage }
+  // An explore subagent's progress (ADR-0019): `id` is the Task call it runs for.
+  | { type: "subagent"; id: string; model: string; phase: "tool"; summary: string }
+  | { type: "subagent"; id: string; model: string; phase: "done"; usage: Usage; toolUses: number };
 
 // Asked when the permission engine says "ask". Headless runs answer "deny".
 export type Asker = (req: { tool: string; access: Access; reason: string }) => Promise<boolean>;
@@ -76,6 +80,8 @@ export type AgentOptions = {
   // Lifecycle hooks (ADR-0016). With `hookSessionStart`, SessionStart fires first with that source.
   hooks?: HookRunner;
   hookSessionStart?: "startup" | "resume" | "clear" | "compact";
+  // The model for explore subagents (ADR-0019). When set, the Task tool is offered.
+  explore?: { provider: Provider; model: string; label: string };
 };
 
 export type AgentResult = {
@@ -97,7 +103,23 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   const usableSkills = (opts.skills ?? []).filter((s) => s.modelInvocable);
   const listing = skillListing(usableSkills, opts.skillListingChars ?? 4000);
   const loadedSkills = new Set(opts.slash ? [opts.slash.name] : []);
-  const tools = usableSkills.length ? [...opts.tools, skillTool(usableSkills, loadedSkills)] : opts.tools;
+  // Subagent tokens are counted with the run's, though they never enter its context.
+  let subagentUsage = emptyUsage();
+  let taskCall = "";
+  const explore = opts.explore;
+  const extra = [
+    ...(usableSkills.length ? [skillTool(usableSkills, loadedSkills)] : []),
+    ...(explore
+      ? [
+          taskTool((req) =>
+            runExplore(opts, explore, req, taskCall, emit, (u) => {
+              subagentUsage = addUsage(subagentUsage, u);
+            }),
+          ),
+        ]
+      : []),
+  ];
+  const tools = [...opts.tools, ...extra];
   const system = systemPrompt({
     cwd: opts.cwd,
     projectRoot,
@@ -164,8 +186,9 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   let result = "";
   const maxTurns = opts.maxTurns ?? 50;
   const finish = (stopReason: AgentResult["stopReason"], turns: number): AgentResult => {
-    log?.append("session_end", { stopReason, turns, usage });
-    return { result, stopReason, turns, usage, items };
+    const total = addUsage(usage, subagentUsage);
+    log?.append("session_end", { stopReason, turns, usage: total });
+    return { result, stopReason, turns, usage: total, items };
   };
 
   const hooks = opts.hooks;
@@ -263,6 +286,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     for (const call of calls) {
       // After a hook stops the run, the remaining calls still get a result, so the
       // conversation stays valid if it is resumed.
+      taskCall = call.id;
       const r = halted
         ? { content: `Not run: ${halted}`, isError: true }
         : await runTool(call, byName, opts, permissions(), ctx, emit, beforeChange, report);
@@ -280,6 +304,50 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   }
 
   return finish("max_turns", maxTurns);
+}
+
+// One explore subagent run: a fresh conversation on the explore model, read-only tools,
+// plan mode, and nobody to ask. Its report, with a one-line footer, is the Task result.
+async function runExplore(
+  parent: AgentOptions,
+  explore: NonNullable<AgentOptions["explore"]>,
+  req: ExploreRequest,
+  callId: string,
+  emit: (e: AgentEvent) => void,
+  addUsage: (u: Usage) => void,
+): Promise<ToolResult> {
+  let toolUses = 0;
+  const started = performance.now();
+  const res = await runAgent({
+    provider: explore.provider,
+    model: explore.model,
+    prompt: `${EXPLORE_BRIEF}\n\nTask: ${req.prompt}`,
+    cwd: parent.cwd,
+    tools: parent.tools.filter((t) => EXPLORE_TOOLS.includes(t.spec.name)),
+    permissions: { ...parent.permissions, mode: "plan" },
+    ask: async () => false,
+    ...(parent.addDirs ? { addDirs: parent.addDirs } : {}),
+    ...(parent.sandbox ? { sandbox: parent.sandbox } : {}),
+    ...(req.signal ? { signal: req.signal } : {}),
+    ...(parent.userInstructionsFile ? { userInstructionsFile: parent.userInstructionsFile } : {}),
+    maxTurns: 25,
+    onEvent: (e) => {
+      if (e.type === "tool_call") {
+        toolUses++;
+        emit({ type: "subagent", id: callId, model: explore.label, phase: "tool", summary: e.summary ?? e.name });
+      }
+    },
+  });
+  addUsage(res.usage);
+  emit({ type: "subagent", id: callId, model: explore.label, phase: "done", usage: res.usage, toolUses });
+  const tokens = res.usage.input + res.usage.output;
+  const secs = Math.round((performance.now() - started) / 1000);
+  const report = res.result.trim() || "(the subagent finished without a report)";
+  const cut = report.length > 12_000 ? `${report.slice(0, 12_000)}\n… [report truncated]` : report;
+  const stopped = res.stopReason === "max_turns" ? " · stopped at the turn limit" : "";
+  return {
+    content: `${cut}\n\n[explore: ${toolUses} tool use${toolUses === 1 ? "" : "s"} · ${tokens} tokens · ${secs}s · ${explore.label}${stopped}]`,
+  };
 }
 
 function reportHook(event: HookEvent, o: HookOutcome, emit: (e: AgentEvent) => void, log: SessionLog | undefined) {

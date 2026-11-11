@@ -222,7 +222,7 @@ describe("TuiApp", () => {
   });
 
   test("the settings panel opens over the prompt box, switches tabs, changes settings, and leaves nothing behind", async () => {
-    const saved: number[] = [];
+    const saved: [string, string, unknown][] = [];
     const provider = new FakeProvider([
       [
         { type: "text_delta", text: "hi" },
@@ -232,7 +232,10 @@ describe("TuiApp", () => {
     ]);
     const { vt, type } = setup(provider, {
       cacheDays: 3,
-      onCacheDays: (d) => saved.push(d),
+      saveSetting: (scope, key, value) => saved.push([scope, key, value]),
+      settings: { model: { user: "ollama:big" } },
+      models: ["ollama:big", "ollama:small"],
+      useModel: async (label) => ({ provider, model: label.slice(7), label, reason: "" }),
       contextWindow: 8000,
       statusInfo: [["Trust", "trusted"]],
     });
@@ -242,14 +245,31 @@ describe("TuiApp", () => {
     expect(vt.text()).toContain("Context   2.5k of 8.0k tokens (32%)");
     expect(vt.text()).toContain("Tokens    2.0k in (500 from cache) · 40 out");
     expect(vt.text()).not.toContain("Ask teh anything");
-    // Left to Config: change the cache retention and the permission mode.
+    // Left to Config: settings for this session, this project and you, each saved where it lives.
     await type("\x1b[D");
-    expect(vt.text()).toContain("❯ Permission mode     default");
+    expect(vt.text()).toContain("This session\n❯ Permission mode        default");
+    expect(vt.text()).toContain("This project · .teh/settings.local.json");
+    expect(vt.text()).toContain("You · ~/.teh/settings.json");
     await type("\r");
-    expect(vt.text()).toContain("❯ Permission mode     acceptEdits");
+    expect(vt.text()).toContain("❯ Permission mode        acceptEdits");
+    // Model for this session: switches now, and the next prompt uses it.
     await type("\x1b[B\r");
-    expect(vt.text()).toContain("❯ Session cache kept  7 days");
-    expect(saved).toEqual([7]);
+    expect(vt.text()).toContain("❯ Model                  ollama:big  the next prompt re-reads the conversation");
+    await type("\r");
+    expect(vt.text()).toContain("❯ Model                  ollama:small");
+    // Project model and start mode, then your own model and retention settings.
+    await type("\x1b[B\x1b[B\r\x1b[B\r\r\x1b[B\r\x1b[B\x1b[B\r\x1b[B\r\x1b[B\r");
+    expect(saved).toEqual([
+      ["project", "model", "ollama:big"],
+      ["project", "permissions.defaultMode", "default"],
+      ["project", "permissions.defaultMode", "acceptEdits"],
+      ["user", "model", "ollama:small"],
+      ["user", "cacheRetentionDays", 7],
+      ["user", "cleanupPeriodDays", 60],
+      ["user", "checkpointRetentionDays", 7],
+    ]);
+    expect(vt.text()).toContain("Start in mode          acceptEdits  only while the folder is trusted");
+    expect(vt.text()).toContain("❯ Keep undo checkpoints  7 days");
     // Left again to Status; Tab goes forward.
     await type("\x1b[D");
     expect(vt.text()).toContain("Trust            trusted");
@@ -261,6 +281,28 @@ describe("TuiApp", () => {
     expect(vt.text()).toContain("⏵⏵ accept edits on");
     expect(vt.text()).not.toContain("Settings");
     expect(vt.text()).toContain("● hi\n─");
+  });
+
+  test("the Config tab switches the screen between full screen and inline, keeping the conversation", async () => {
+    const saved: unknown[] = [];
+    const { vt, type } = setup(new FakeProvider([say("kept on screen")]), {
+      fullscreen: true,
+      saveSetting: (_scope, key, value) => saved.push([key, value]),
+    });
+    await type("hello\r");
+    expect(vt.alt).toBeDefined();
+    await type("/config\r\x1b[B\x1b[B\r");
+    expect(vt.alt).toBeUndefined();
+    expect(vt.text()).toContain("● kept on screen");
+    expect(vt.text()).toContain("❯ Screen                 inline");
+    expect(saved).toEqual([["screen", "inline"]]);
+    await type("\r");
+    expect(vt.alt).toBeDefined();
+    expect(vt.text()).toContain("● kept on screen");
+    expect(saved).toEqual([
+      ["screen", "inline"],
+      ["screen", undefined],
+    ]);
   });
 
   test("with no pinned model, the first prompt of each session picks one and it holds until /clear", async () => {
@@ -282,6 +324,29 @@ describe("TuiApp", () => {
     await type("refactor everything\r");
     expect(provider.requests[2]?.model).toBe("big");
     expect(asked).toEqual(["what is this?", "refactor everything"]);
+  });
+
+  test("an explore subagent shows as one tool call with a Done line; its steps stay out of the transcript", async () => {
+    const explorer = new FakeProvider([callTool("Glob", { pattern: "*.txt" }), say("Two text files.")]);
+    const provider = new FakeProvider([
+      callTool("Task", { description: "count text files", prompt: "How many .txt files are there?" }),
+      say("There are two."),
+    ]);
+    const { vt, type } = setup(provider, {
+      agent: {
+        provider,
+        model: "fake",
+        cwd: temp(),
+        tools: builtinTools,
+        permissions: { mode: "default", allow: [], deny: [] },
+        explore: { provider: explorer, model: "small", label: "ollama:small" },
+      },
+    });
+    await type("how many?\r");
+    expect(vt.text()).toMatch(
+      /◆ Explore\(count text files\)\n {2}⎿ {2}Done \(1 tool use · 15 tokens · \d+s · ollama:small\)\n\n● There are two\./,
+    );
+    expect(vt.text()).not.toContain("Glob");
   });
 
   test("/btw answers a side question without adding it to the conversation", async () => {

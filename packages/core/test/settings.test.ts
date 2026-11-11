@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { isTrusted, loadSettings, setTrusted } from "../src/settings";
+import { isTrusted, loadSettings, setProjectSetting, setTrusted, setUserSetting } from "../src/settings";
 import { tempDir } from "./helpers";
 
 const write = (path: string, data: unknown) => {
@@ -60,5 +60,52 @@ describe("settings files", () => {
     expect(isTrusted(teh, tempDir())).toBe(false);
     setTrusted(teh, root, false);
     expect(isTrusted(teh, root)).toBe(false);
+  });
+
+  test("model, roles.explore, permissions.defaultMode, screen and retention settings; writers keep other keys", () => {
+    const teh = tempDir();
+    const root = tempDir();
+    const home = tempDir();
+    writeFileSync(
+      join(teh, "settings.json"),
+      JSON.stringify({
+        model: "ollama:big",
+        screen: "inline",
+        cleanupPeriodDays: 7,
+        checkpointRetentionDays: 14,
+        permissions: { defaultMode: "acceptEdits", allow: ["Read"] },
+      }),
+    );
+    expect(setProjectSetting(root, "model", "ollama:small")).toBe(true);
+    expect(setProjectSetting(root, "roles.explore", "ollama:tiny")).toBe(true);
+    expect(setProjectSetting(root, "permissions.defaultMode", "plan")).toBe(true);
+    const s = loadSettings(teh, root, home);
+    expect(s.model).toEqual({ user: "ollama:big", project: "ollama:small" });
+    expect(s.exploreModel).toEqual({ project: "ollama:tiny" });
+    expect(s.defaultMode).toEqual({ user: "acceptEdits", project: "plan" });
+    expect(s.screen).toBe("inline");
+    expect(s.cleanupPeriodDays).toBe(7);
+    expect(s.checkpointRetentionDays).toBe(14);
+    expect(s.user.allow).toHaveLength(1);
+    // The personal project file is kept out of git.
+    expect(readFileSync(join(root, ".teh", ".gitignore"), "utf8")).toBe("settings.local.json\n");
+    // Writers keep what was there; undefined removes a key.
+    expect(setUserSetting(teh, "screen", undefined)).toBe(true);
+    const back = JSON.parse(readFileSync(join(teh, "settings.json"), "utf8"));
+    expect(back.screen).toBeUndefined();
+    expect(back.permissions.allow).toEqual(["Read"]);
+    writeFileSync(join(teh, "settings.json"), "[1]");
+    expect(setUserSetting(teh, "model", "x")).toBe(false);
+    // Claude Code's "model" names its own models; teh ignores it there.
+    write(join(home, ".claude", "settings.json"), { model: "opus" });
+    expect(loadSettings(tempDir(), tempDir(), home).model).toEqual({});
+    // Bad values are reported, not used.
+    writeFileSync(join(teh, "settings.json"), JSON.stringify({ cleanupPeriodDays: 0, screen: "big" }));
+    const bad = loadSettings(teh, tempDir(), home);
+    expect(bad.cleanupPeriodDays).toBeUndefined();
+    expect(bad.problems.map((p) => p.message)).toEqual([
+      "cleanupPeriodDays must be a number of days (1 or more)",
+      'screen must be "fullscreen" or "inline"',
+    ]);
   });
 });

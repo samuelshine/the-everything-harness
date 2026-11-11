@@ -48,7 +48,7 @@ packages/cli/dist/teh models  # list local models and whether they support tools
 packages/cli/dist/teh -p --model ollama:gemma4:e4b "What does this repo do?"
 ```
 Run `teh` with no `-p` to work interactively (ADR-0005, ADR-0018). The UI takes the whole terminal; `--inline` keeps it in the normal scrollback instead.
-- **Model:** with no `--model`, `teh` picks one of your installed models to fit the first prompt: a small one for a short question, the largest for a refactor (ADR-0014). The rules use no tokens, and the model stays the same for the session. `--model ollama:<name>` or `TEH_MODEL` pins one.
+- **Model:** with no `--model`, `teh` picks one of your installed models to fit the first prompt (ADR-0014). The prompt is sorted into small, medium or large by rules that use no tokens. Then teh takes the fastest model that did as well as the best on that size of task in the model-routing eval (`evals/model-routing`). Run the eval with `--save-scores` to rank your own models. The model stays the same for the session. `--model ollama:<name>`, `TEH_MODEL` or `"model"` in settings pins one.
 - **Trust:** the first time you start `teh` in a folder it asks whether you trust it. *No* still opens the folder, with the folder's own allow rules, hooks and MCP servers ignored.
 - **Projects:** each directory is its own project. `teh` starts a new session; `teh -c` continues the latest one started in this directory.
 - **Sending:** type a prompt and press Enter. Shift+Enter, Alt+Enter, or `\` then Enter adds a new line. Pasting a block keeps it as one prompt.
@@ -57,11 +57,16 @@ Run `teh` with no `-p` to work interactively (ADR-0005, ADR-0018). The UI takes 
 - **Modes:** Shift+Tab cycles the permission mode: ask, accept edits, plan.
 - **Commands:** `/clear` and `/exit`, plus your skills and commands. `/` shows completions.
 - **Settings panel:** `/status`, `/config`, `/usage` and `/help` open a panel over the prompt box. ←/→ or Tab switches tabs, Enter changes a setting, Esc closes it.
+  - **This session:** permission mode, the model (switch to any installed one), and full screen or inline (switched in place).
+  - **This project:** its model and the mode to start in, saved to `.teh/settings.local.json`, which is kept out of git.
+  - **You:** your default model and start mode, and how long screen caches, sessions and undo checkpoints are kept, saved to `~/.teh/settings.json`.
+- **Explore subagents:** for a broad search, the model can hand the job to a read-only subagent with its own context, usually on a smaller model. Only its report comes back, so the search does not fill your conversation (ADR-0019). It shows as `◆ Explore(...)` with a `Done` line. Set `"roles": {"explore": "ollama:<name>"}` to choose its model, or `"off"`.
 - **Side questions:** `/btw <question>` answers from the conversation so far without adding to it, even while `teh` is working.
 - **What you see:** replies start with `●`. Tool calls start with `◆`, and edits show a numbered diff with removed lines in red and added lines in green.
 - **Scrolling:** mouse wheel, PgUp/PgDn or Shift+Up/Down. Ctrl+Home and Ctrl+End jump to the start and the end. Hold Shift (Option in some macOS terminals) to select text with the mouse.
 - **Leaving:** Ctrl+D quits. `teh -c` picks the conversation up again.
 - **Session cache:** what the screen showed is saved per session and drawn again when you resume. A cache untouched for 3 days is deleted; set `cacheRetentionDays` in `~/.teh/settings.json` to change that. The conversation itself is kept, so `teh -c` still continues an older session, with a shorter rebuilt view.
+- **Cleanup:** sessions untouched for 30 days are deleted at startup (`cleanupPeriodDays`), and `teh sessions rm <id>` deletes one. Undo checkpoints are kept unless you set `checkpointRetentionDays`.
 
 `teh` asks before every change by default (ADR-0008). Reading the project and read-only commands such as `ls`, `cat`, `grep`, `sed -n 1,20p` and `git status/log/diff` run without asking. Headless mode cannot ask, so it denies everything else and prints the rule that would allow it:
 - `--permission-mode acceptEdits` allows file edits inside the workspace.
