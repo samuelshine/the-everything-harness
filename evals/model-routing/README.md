@@ -69,4 +69,5 @@ Per task (passes out of 3):
 - **The tiers come from teh's own triage rules,** so the eval measures that triage together with the models. It does not test whether a different S/M/L split would route better.
 - **Grading is by the result,** not by how the result was reached. A run that passed after a destructive detour still passes.
 - **One run was killed at 300 s** (qwen2.5, S1) and counts as a fail.
+- **Only the first `--allowedTools` rule applied** (found 2026-11-11, fixed in PR #29). The CLI took one value per `--allowedTools`, so the runner's other rules (`bun cli.js`, `bun run`, `node`) were not allowed, and they were added to the front of every task prompt as text. Every model got the same handicap, so the comparison holds, but absolute pass rates on tasks that needed those commands are likely low. The eval should be rerun.
 - **An earlier attempt was discarded.** Its runner did not drain the child's stderr, and 16 qwen2.5 runs died after about 30 s for that reason, not because of the model. All qwen2.5 runs were redone after the runner was fixed. mistral-nemo and gemma4 runs from that attempt were kept: none of them were killed.

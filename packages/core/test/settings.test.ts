@@ -72,6 +72,7 @@ describe("settings files", () => {
         model: "ollama:big",
         screen: "inline",
         autoCompact: true,
+        webSearch: { engine: "searxng", url: "https://search.example" },
         cleanupPeriodDays: 7,
         checkpointRetentionDays: 14,
         permissions: { defaultMode: "acceptEdits", allow: ["Read"] },
@@ -84,6 +85,10 @@ describe("settings files", () => {
     expect(setProjectSetting(root, "autoCompact", false)).toBe(true);
     const s = loadSettings(teh, root, home);
     expect(s.autoCompact).toBe(false);
+    expect(s.webSearch).toEqual({ engine: "searxng", url: "https://search.example" });
+    // A project cannot choose where searches go.
+    write(join(root, ".teh", "settings.json"), { webSearch: { engine: "brave" } });
+    expect(loadSettings(teh, root, home).webSearch).toEqual({ engine: "searxng", url: "https://search.example" });
     expect(s.model).toEqual({ user: "ollama:big", project: "ollama:small" });
     expect(s.exploreModel).toEqual({ project: "ollama:tiny" });
     expect(s.defaultMode).toEqual({ user: "acceptEdits", project: "plan" });

@@ -22,8 +22,10 @@ import { type Skill, skillListing } from "./skills";
 import type { OutputStyle } from "./styles";
 import { skillTool } from "./tools/skill";
 import { EXPLORE_BRIEF, EXPLORE_TOOLS, type ExploreRequest, taskTool } from "./tools/task";
+import { formatTodos, latestTodos } from "./tools/todo";
 import type { Access, Tool, ToolContext, ToolResult } from "./tools/tool";
 import { ToolInputError } from "./tools/tool";
+import { type SearchEngine, WEB_HELPER_BRIEF, type WebHelper } from "./tools/web";
 import { addUsage, emptyUsage, type Item, ProviderError, type StopReason, type Usage } from "./types";
 
 export type AgentEvent =
@@ -99,7 +101,12 @@ export type AgentOptions = {
   autoCompact?: boolean;
   // Reported tokens per estimated token, from an earlier run of the same conversation.
   tokenScale?: number;
+  // The engine WebSearch queries (ADR-0021); DuckDuckGo when unset.
+  webSearch?: SearchEngine;
 };
+
+// Marks text teh itself adds to the conversation, as opposed to the user's or a hook's.
+export const TEH_NOTE = "[teh]";
 
 export type AgentResult = {
   result: string;
@@ -150,8 +157,31 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     ...(opts.outputStyle ? { style: opts.outputStyle } : {}),
     ...(opts.mcpInstructions?.length ? { mcpInstructions: opts.mcpInstructions } : {}),
   });
+  // WebFetch's reader: the explore model when there is one, else the main model. Its tokens
+  // count like a subagent's: in the run's usage, not in the conversation.
+  const reader = explore ?? { provider: opts.provider, model: opts.model };
+  const webHelper: WebHelper = async ({ prompt, content, signal }) => {
+    let out = "";
+    for await (const ev of reader.provider.stream(
+      {
+        model: reader.model,
+        system: WEB_HELPER_BRIEF,
+        items: [{ kind: "text", role: "user", text: `Request: ${prompt}\n\nPage content:\n${content}` }],
+        tools: [],
+        maxOutputTokens: 2048,
+        temperature: 0.2,
+      },
+      signal,
+    )) {
+      if (ev.type === "text_delta") out += ev.text;
+      else if (ev.type === "usage") subagentUsage = addUsage(subagentUsage, ev.usage);
+    }
+    return out;
+  };
   const ctx: ToolContext = {
     cwd: opts.cwd,
+    webHelper,
+    ...(opts.webSearch ? { webSearch: opts.webSearch } : {}),
     workspaceRoots: [projectRoot, opts.cwd, ...(opts.addDirs ?? [])],
     readState: new Map(),
     readRoots: usableSkills.map((s) => s.dir),
@@ -253,6 +283,9 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     log?.append("skill_route", { ...opts.skillRoute, ...(hint ? { hint } : {}) });
   }
   let stopHookActive = false;
+  let todoNudges = 0;
+  // Where this prompt's work starts, so only a to-do list written for it is enforced.
+  let runStart = items.length;
   const specs = tools.map((t) => t.spec);
   const window = opts.contextWindow;
   // Replace the conversation in place with a compacted one; false when that was not possible.
@@ -273,6 +306,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
         ...(opts.signal ? { signal: opts.signal } : {}),
       });
       items.splice(0, items.length, ...r.items);
+      runStart = 0;
       usage = addUsage(usage, r.usage);
       if (hooks?.has("SessionStart")) {
         const o = await hooks.run({ hook_event_name: "SessionStart", source: "compact" }, "compact");
@@ -353,6 +387,18 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
           addHookText("Stop", o.block);
           continue;
         }
+      }
+      // Stopping with unfinished items on the model's own to-do list is usually a lapse, not a
+      // decision (seen live with small models): remind it, at most twice a run (ADR-0021).
+      const open =
+        stop === "end" ? (latestTodos(items.slice(runStart)) ?? []).filter((t) => t.status !== "completed") : [];
+      if (open.length && todoNudges < 2) {
+        todoNudges++;
+        const text = `${TEH_NOTE} Your to-do list still has unfinished items:\n${formatTodos(open)}\nContinue with them, or update the list with TodoWrite if they are done or no longer needed, then finish with a short summary for the user.`;
+        items.push({ kind: "text", role: "user", text });
+        log?.append("hook", { event: "Stop", text });
+        emit({ type: "warning", message: `reminded the model of ${open.length} unfinished to-do item(s)` });
+        continue;
       }
       return finish(stop, turn);
     }

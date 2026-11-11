@@ -7,6 +7,7 @@ import { isReadOnly, type PathCheck, unwrap } from "./readonly";
 import { commandText, parseShell, type SimpleCommand, type Word } from "./shell";
 import { posixShell } from "./tools/bash";
 import { type Access, insideWorkspace, type ToolContext } from "./tools/tool";
+import { domainRuleMatches } from "./tools/web";
 
 // Mode names mirror Claude Code's --permission-mode (ADR-0010).
 export type PermissionMode = "default" | "acceptEdits" | "plan" | "bypassPermissions";
@@ -191,7 +192,7 @@ export function pathRuleMatches(pattern: string, abs: string, root: string, home
 
 function pathsMatch(rule: Rule, access: Access, config: PermissionConfig, ctx: ToolContext): boolean {
   if (rule.pattern === undefined) return true;
-  if (access.kind === "execute" || access.kind === "external") return false;
+  if (access.kind === "execute" || access.kind === "external" || access.kind === "network") return false;
   const root = config.projectRoot ?? ctx.workspaceRoots[0] ?? ctx.cwd;
   const home = config.home ?? homedir();
   const pattern = rule.pattern;
@@ -230,6 +231,7 @@ function firstHit(
 ): Rule | undefined {
   return rules.find((r) => {
     if (access.kind === "external") return r.pattern === undefined && mcpRuleMatches(r.tool, tool);
+    if (access.kind === "network") return r.tool === tool && domainRuleMatches(r.pattern, access.host);
     if (access.kind === "execute") return r.tool === tool && a !== undefined && bashRuleHitsAny(r, access.command, a);
     return ruleApplies(r, tool, access, config, ctx);
   });
@@ -312,6 +314,8 @@ function commandAllowed(
 // A rule the user could add to allow this action next time.
 export function suggestRule(tool: string, access: Access): string | undefined {
   if (access.kind === "external") return tool;
+  if (access.kind === "network")
+    return tool === "WebFetch" ? `WebFetch(domain:${access.host.replace(/:\d+$/, "")})` : tool;
   if (access.kind === "write") return tool === "Write" || tool === "Edit" ? "Edit" : tool;
   if (access.kind !== "execute") return undefined;
   const a = parseShell(access.command);
@@ -347,6 +351,15 @@ export function decide(tool: string, access: Access, config: PermissionConfig, c
         : { behavior: "deny", reason: "plan mode is read-only; an allow rule can let this MCP tool run" };
     if (allowed) return { behavior: "allow", reason: `allowed by rule ${formatRule(allowed)}` };
     return ask(`MCP tool from ${access.server}`, true);
+  }
+
+  // The network (ADR-0021): nothing local changes, so plan mode is no different, but a request
+  // can carry data out, so it asks unless a rule allows that domain or tool.
+  if (access.kind === "network") {
+    if (asked) return ask(`rule ${formatRule(asked)} asks first`);
+    const allowed = firstHit(config.allow, tool, access, config, ctx, undefined);
+    if (allowed) return { behavior: "allow", reason: `allowed by rule ${formatRule(allowed)}` };
+    return ask(`network request to ${access.host}`, true);
   }
 
   if (access.kind === "read") {

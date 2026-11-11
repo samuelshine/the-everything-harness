@@ -2,6 +2,7 @@ import { realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { Sandbox, SandboxLevel } from "../sandbox";
 import type { ToolSpec } from "../types";
+import type { SearchEngine, WebHelper } from "./web";
 
 export type ToolContext = {
   cwd: string;
@@ -16,6 +17,10 @@ export type ToolContext = {
   // that ran without asking because they are read-only get the stricter one.
   sandbox?: Sandbox;
   sandboxLevel?: SandboxLevel;
+  // For WebFetch: a model call that reads a page against the caller's question (ADR-0021).
+  webHelper?: WebHelper;
+  // For WebSearch: which engine to query.
+  webSearch?: SearchEngine;
 };
 
 export type ToolResult = { content: string; isError?: boolean };
@@ -26,7 +31,9 @@ export type Access =
   | { kind: "write"; paths: string[]; summary: string }
   | { kind: "execute"; command: string; summary: string }
   // A tool outside teh, such as an MCP server's (ADR-0017). Its effects are unknown.
-  | { kind: "external"; server: string; summary: string };
+  | { kind: "external"; server: string; summary: string }
+  // A request to another machine (ADR-0021): WebFetch's host, or the search engine's.
+  | { kind: "network"; host: string; summary: string };
 
 export interface Tool<A = unknown> {
   spec: ToolSpec;

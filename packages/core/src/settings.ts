@@ -34,6 +34,9 @@ export type LoadedSettings = {
   // "autoCompact": false turns off automatic compaction near the context limit (ADR-0020).
   // A project's setting wins over the user's.
   autoCompact?: boolean;
+  // "webSearch": {"engine": "duckduckgo" | "searxng" | "brave", "url": "…"} (ADR-0021). User
+  // settings only: a repository must not choose where your searches go.
+  webSearch?: { engine: "duckduckgo" | "searxng" | "brave"; url?: string };
   // "model": the model to use when none is given on the command line (ADR-0014). The
   // project's wins over the user's. "roles": {"explore": model} for explore subagents.
   model: { user?: string; project?: string };
@@ -100,6 +103,16 @@ export function loadSettings(tehHome: string, projectRoot: string, home = homedi
       if (n === undefined || f.scope !== "user") continue;
       if (typeof n === "number" && n >= 1) out[key] = n;
       else out.problems.push({ path, message: `${key} must be a number of days (1 or more)` });
+    }
+    if (d.webSearch !== undefined && f.scope === "user") {
+      const w = d.webSearch as { engine?: unknown; url?: unknown };
+      const engine = w?.engine;
+      if (
+        (engine === "duckduckgo" || engine === "searxng" || engine === "brave") &&
+        (w.url === undefined || typeof w.url === "string")
+      )
+        out.webSearch = { engine, ...(typeof w.url === "string" ? { url: w.url } : {}) };
+      else out.problems.push({ path, message: 'webSearch.engine must be "duckduckgo", "searxng" or "brave"' });
     }
     if (typeof d.autoCompact === "boolean") out.autoCompact = d.autoCompact;
     else if (d.autoCompact !== undefined) out.problems.push({ path, message: "autoCompact must be true or false" });

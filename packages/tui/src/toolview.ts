@@ -1,6 +1,7 @@
 // How tool calls and their results are drawn (ADR-0018). They must not read as chat: a
 // reply starts with "●", a tool call with "◆ Verb(target)", and its result hangs under "⎿".
 // Edits show a diff with line numbers, removed lines on red and added lines on green.
+import { parseTodos, type Todo } from "@everything-harness/core";
 import type { Style } from "./text";
 
 const MAX_DIFF_LINES = 24;
@@ -11,6 +12,8 @@ const plural = (n: number, one: string) => `${n} ${one}${n === 1 ? "" : "s"}`;
 // "Edit src/a.ts" → ◆ Edit(src/a.ts); "Run `npm test`" → ◆ Run(npm test).
 export function toolHeader(summary: string, s: Style): string {
   const line = (summary.split("\n")[0] ?? "").trim();
+  if (line.startsWith("Update Todos"))
+    return `${s.cyan("◆")} ${s.bold("Update Todos")}${s.dim(line.slice("Update Todos".length))}`;
   const space = line.indexOf(" ");
   const verb = space < 0 ? line : line.slice(0, space);
   let rest = space < 0 ? "" : line.slice(space + 1).trim();
@@ -23,7 +26,10 @@ export function toolHeader(summary: string, s: Style): string {
 // The header for a call known only by its tool name and arguments (a rebuilt transcript).
 export function toolHeaderFromCall(name: string, args: unknown, s: Style): string {
   const a = (typeof args === "object" && args ? args : {}) as Record<string, unknown>;
-  const what = [a.file_path, a.command, a.pattern, a.path].find((v) => typeof v === "string") as string | undefined;
+  const what = [a.file_path, a.notebook_path, a.command, a.pattern, a.path, a.url, a.query].find(
+    (v) => typeof v === "string",
+  ) as string | undefined;
+  if (name === "TodoWrite") return toolHeader("Update Todos", s);
   return toolHeader(`${name}${what ? ` ${what}` : ""}`, s);
 }
 
@@ -37,6 +43,16 @@ function diffLine(l: string, s: Style): string | undefined {
   if (sign === "+") return `     ${s.added(`${num} + ${text}`)}`;
   if (sign === "-") return `     ${s.removed(`${num} - ${text}`)}`;
   return `     ${s.dim(`${num}   ${text}`)}`;
+}
+
+// The to-do list as a checklist: done items dimmed, the current one in bold.
+export function todoLines(todos: Todo[], s: Style): string[] {
+  return todos.map((t, i) => {
+    const lead = i === 0 ? `  ${s.dim("⎿")}  ` : "     ";
+    if (t.status === "completed") return `${lead}${s.dim(`☒ ${t.content}`)}`;
+    if (t.status === "in_progress") return `${lead}${s.bold(`◼ ${t.content}`)}`;
+    return `${lead}☐ ${t.content}`;
+  });
 }
 
 export function resultLines(name: string, args: unknown, content: string, isError: boolean, s: Style): string[] {
@@ -82,6 +98,22 @@ export function resultLines(name: string, args: unknown, content: string, isErro
     return [result(s.dim(foot ? `Done (${foot[1]})` : "Done"), s)];
   }
   if (name === "Read") return [result(s.dim(`Read ${plural(lines.length, "line")}`), s)];
+  if (name === "TodoWrite") {
+    try {
+      const todos = parseTodos(args);
+      return todos.length ? todoLines(todos, s) : [result(s.dim("Cleared the to-do list"), s)];
+    } catch {
+      return [result(s.dim(head), s)];
+    }
+  }
+  if (name === "WebSearch") {
+    const n = lines.filter((l) => /^\d+\. /.test(l)).length;
+    return [result(s.dim(n ? `Found ${plural(n, "result")}` : head), s)];
+  }
+  if (name === "WebFetch") {
+    const title = head.includes(" — ") ? head.slice(head.indexOf(" — ") + 3) : head;
+    return [result(s.dim(`Fetched ${title}`), s)];
+  }
   const n = lines.length;
   return [result(s.dim(`${head}${n > 1 ? ` (+${n - 1} lines)` : ""}`), s)];
 }
