@@ -26,7 +26,7 @@ The research names compaction as the standard answer [CTX-01]: near the limit, s
 - **Interface.** `/compact [focus]` in the interactive UI; the spinner says "Compacting the conversation…". A dimmed line marks it in the transcript, with before and after sizes; the transcript on screen is not cleared. The status line shows the context percentage once it passes 50%, and when compaction will happen. The Config tab toggles `autoCompact`, saved in user settings; a project's `autoCompact` wins. Headless runs print `› conversation compacted` to stderr.
 
 ## Consequences
-- **Good:** long tasks run on small windows. Live check, gemma4:e4b with a 12k window: read seven files and write a result that needed a value from the first; three automatic compactions; correct answer. Without compaction the same run stopped at the window limit after the third file.
+- **Good:** long tasks run on small windows. In the compaction eval (`evals/compaction/`, gemma4:e4b, 5 runs per arm), a recall task across seven file reads passed 5/5 on a 12k window with compaction (2.2 compactions per run), 0/5 without it, and 5/5 on a 64k window. Compaction took about 1.8× the time of the wide run.
 - **Good:** the conversation is never lost: the log keeps it, and rewind restores it.
 - **Cost:** one extra model call per compaction, and the summary can drop detail. The deterministic parts (requests, changed files) are there so the most important facts do not depend on it.
 - **Risk:** a weak model writes a weak summary. The compaction eval (`evals/compaction/`) is the check.
