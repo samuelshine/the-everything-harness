@@ -8,6 +8,7 @@ export * from "./checkpoints";
 export * from "./hooks";
 export * from "./instructions";
 export * from "./mcp";
+export * from "./modelpolicy";
 export * from "./permissions";
 export * from "./providers";
 export * from "./providers/fake";

@@ -4,6 +4,8 @@ export type ModelInfo = {
   id: string;
   contextWindow?: number;
   supportsTools?: boolean;
+  // Size on disk, where the provider reports it: a rough stand-in for capability and cost.
+  sizeBytes?: number;
 };
 
 export type ProbeResult = {

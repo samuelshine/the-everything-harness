@@ -1,6 +1,8 @@
 // Argument parsing and dispatch, kept free of process globals so it can be tested.
+
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
 import {
   type AgentEvent,
@@ -8,6 +10,8 @@ import {
   type Checkpoint,
   CheckpointError,
   CheckpointStore,
+  chooseModel,
+  countHooks,
   createProvider,
   DEFAULT_CACHE_RETENTION_DAYS,
   DEFAULT_EMBED_MODEL,
@@ -17,11 +21,13 @@ import {
   findSession,
   findStyle,
   HookRunner,
+  isTrusted,
   type LoadedSession,
   listSessions,
   loadSettings,
   loadSkills,
   loadStyles,
+  type ModelInfo,
   type OutputStyle,
   PERMISSION_MODES,
   type PermissionMode,
@@ -38,12 +44,15 @@ import {
   SessionLog,
   type Skill,
   SkillRouter,
+  setTrusted,
+  setUserSetting,
   similarNames,
   TranscriptCache,
   tehHome,
+  triage,
   VERSION,
 } from "@everything-harness/core";
-import { type TerminalIo, TuiApp } from "@everything-harness/tui";
+import { askTrust, type TerminalIo, TuiApp } from "@everything-harness/tui";
 import { planMcp, printMcp, startMcp } from "./mcp";
 import { printHooks, printPermissions, runPermissions, SANDBOX_MODES, type SandboxMode, trust } from "./permissions";
 import { rewind } from "./rewind";
@@ -77,12 +86,14 @@ one prompt headlessly and print the result; the prompt can also be piped on stdi
 Options:
   -p, --print                   Run headlessly: one prompt, print the result, exit
   --inline                      Draw the interactive UI inline in the scrollback instead of full screen
-  -c, --continue                Continue the most recent session in this project. Its on-screen
+  -c, --continue                Continue the most recent session started in this directory (without
+                                it a new session starts). Its on-screen
                                 transcript is cached for 3 days ("cacheRetentionDays" in
                                 ~/.teh/settings.json); the conversation itself is kept after that
   -r, --resume <id>             Continue a session by id (or prefix); \`teh sessions\` lists them
   --model <provider:model>      Model to use, e.g. ollama:gemma4:e4b (or set TEH_MODEL; a resumed
-                                session keeps its model unless you pass one)
+                                session keeps its model unless you pass one). Without it, teh picks
+                                an installed model to fit the task and keeps it for the session
   --output-format <format>      text (default), json or stream-json
   --permission-mode <mode>      default (ask; denied when headless), acceptEdits, plan, bypassPermissions
   --allowedTools <rules...>     Allow without asking, e.g. "Edit" "Bash(npm test:*)" "Bash(git add *)"
@@ -203,10 +214,27 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   if (!typed && !interactive) return usageError(io, "no prompt given");
 
   const root = findProjectRoot(io.cwd);
+  // Each directory is its own project: sessions and their caches belong to the folder teh
+  // was started in. Settings, skills and checkpoints still come from the repository root.
+  const dir = resolve(io.cwd);
   const home = tehHome(io.env);
   // Session caches past their retention go first (ADR-0018). Conversations are kept.
   const cacheDays = loadSettings(home, root, userHome(io)).cacheRetentionDays ?? DEFAULT_CACHE_RETENTION_DAYS;
   pruneCaches(home, cacheDays);
+  // Starting the UI in a folder for the first time asks whether to trust it (ADR-0018).
+  const term = interactive && io.terminal ? io.terminal() : undefined;
+  if (term && !isTrusted(home, root) && root !== userHome(io)) {
+    const project = loadSettings(home, root, userHome(io));
+    const hookCount = countHooks(project.hooks.project);
+    const found = [
+      project.project.allow.length ? `${project.project.allow.length} allow rule(s)` : "",
+      hookCount ? `${hookCount} hook command(s)` : "",
+      existsSync(join(root, ".mcp.json")) ? "an .mcp.json" : "",
+    ].filter(Boolean);
+    const answer = await askTrust(term, { folder: root, color: !io.env.NO_COLOR && io.env.TERM !== "dumb", found });
+    if (answer === "quit") return 0;
+    if (answer === "trust") setTrusted(home, root, true);
+  }
   const loaded = loadSkills(home, root, userHome(io));
   for (const p of loaded.problems) io.err(`teh: warning: skipped ${p.path}: ${p.message}\n`);
   const perms = runPermissions(io, {
@@ -239,11 +267,11 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   let resumed: LoadedSession | undefined;
   if (v.continue && v.resume) return usageError(io, "use either --continue or --resume, not both");
   if (v.continue) {
-    const latest = listSessions(home, root)[0];
+    const latest = listSessions(home, dir)[0];
     if (!latest) return usageError(io, "no earlier session in this project to continue");
-    resumed = findSession(home, root, latest.id);
+    resumed = findSession(home, dir, latest.id);
   } else if (v.resume) {
-    resumed = findSession(home, root, v.resume);
+    resumed = findSession(home, dir, v.resume);
     if (!resumed) return usageError(io, `no single session matches ${v.resume}; \`teh sessions\` lists them`);
   }
 
@@ -256,12 +284,30 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   const style = pickStyle(io, v["output-style"], resumed?.outputStyle);
   if ("error" in style) return usageError(io, style.error);
 
-  const modelSpec = v.model ?? resumed?.model ?? io.env.TEH_MODEL;
+  // No pinned model: teh picks one for the task from the local models (ADR-0014). The
+  // rules cost no tokens, and the choice holds for the session so its cache is kept.
+  let modelSpec = v.model ?? resumed?.model ?? io.env.TEH_MODEL;
+  let installed: ModelInfo[] | undefined;
+  let autoReason: string | undefined;
   if (!modelSpec) {
-    io.err(
-      "teh: no model selected\n  fix: pass --model ollama:<name> or set TEH_MODEL; `teh models` lists local models\n",
-    );
-    return 2;
+    try {
+      installed = await makeProvider("ollama").listModels();
+    } catch (e) {
+      io.err(
+        `teh: no model selected, and the local models could not be listed (${(e as Error).message})\n  fix: start Ollama, or pass --model <provider:model>\n`,
+      );
+      return 2;
+    }
+    const sorted = triage(typed, { planMode: mode === "plan" });
+    const choice = chooseModel(installed, sorted.tier);
+    if (!choice) {
+      io.err(
+        "teh: no model selected, and no installed model supports tool calling\n  fix: `ollama pull qwen2.5:14b`, or pass --model ollama:<name>; `teh models` lists local models\n",
+      );
+      return 2;
+    }
+    modelSpec = `ollama:${choice.id}`;
+    autoReason = `${sorted.tier}: ${sorted.reason}`;
   }
 
   const mcpPlan = planMcp(io, v["mcp-config"] ?? [], v["strict-mcp-config"] ?? false);
@@ -285,13 +331,15 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     const skillRoute =
       slash || interactive ? undefined : await routeSkills(io, routerMode, typed, skills, home, makeProvider);
     if (format === "text" && style.style.name !== "default") io.err(`› output style: ${style.style.name}\n`);
+    if (format === "text" && autoReason && !interactive)
+      io.err(`› model: ${modelSpec} · chosen for this task (${autoReason}) · --model pins one\n`);
     if (skillRoute && format === "text" && skillRoute.chosen.length) {
       const scores = skillRoute.candidates.filter((c) => skillRoute.chosen.includes(c.name));
       io.err(`› skill router suggests ${scores.map((c) => `${c.name} (${c.score})`).join(", ")}\n`);
     }
     mcp = await startMcp(io, mcpPlan.servers);
     const tools = [...builtinTools, ...(mcp?.tools ?? [])];
-    const session = new SessionLog(home, root, undefined, resumed);
+    const session = new SessionLog(home, dir, undefined, resumed);
     const store = new CheckpointStore(home, root);
     const denied: Denied[] = [];
     const text = textOutput(io, denied);
@@ -304,7 +352,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       transcriptPath: session.path,
       env: io.env,
     });
-    if (interactive && io.terminal) {
+    if (term) {
       const hooksFor = (s: SessionLog) =>
         new HookRunner({
           config: perms.hooks,
@@ -315,11 +363,38 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
           env: io.env,
         });
       const app: TuiApp = new TuiApp({
-        terminal: io.terminal(),
+        terminal: term,
         color: !io.env.NO_COLOR && io.env.TERM !== "dumb",
         fullscreen: !v.inline && io.env.TERM !== "dumb",
-        transcript: new TranscriptCache(home, root),
+        transcript: new TranscriptCache(home, dir),
         cacheDays,
+        onCacheDays: (days) => {
+          setUserSetting(home, "cacheRetentionDays", days);
+        },
+        ...(probe.contextWindow ? { contextWindow: probe.contextWindow } : {}),
+        statusInfo: [
+          ["Project", dir === root ? dir : `${dir} (repository: ${root})`],
+          ["Trust", isTrusted(home, root) ? "trusted" : "not trusted: the folder's own configuration is ignored"],
+          ["MCP servers", String(mcpPlan.servers.length)],
+          ["Skills", String(skills.length)],
+        ],
+        ...(installed
+          ? {
+              pickModel: async (first: string, planMode: boolean) => {
+                const sorted = triage(first, { planMode });
+                const id = chooseModel(installed, sorted.tier)?.id ?? ref.model;
+                const chosen = makeProvider("ollama");
+                const info = await chosen.probe(id);
+                return {
+                  provider: chosen,
+                  model: id,
+                  label: `ollama:${id}`,
+                  ...(info.contextWindow ? { contextWindow: info.contextWindow } : {}),
+                  reason: `${sorted.tier}: ${sorted.reason}`,
+                };
+              },
+            }
+          : {}),
         agent: {
           provider,
           model: ref.model,
@@ -336,7 +411,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
         },
         modelLabel: modelSpec,
         session,
-        newSession: () => new SessionLog(home, root),
+        newSession: () => new SessionLog(home, dir),
         history: resumed?.items ?? [],
         resumed: resumed !== undefined,
         ...(typed ? { initialPrompt: typed } : {}),
@@ -628,7 +703,7 @@ async function restore(io: Io, ref: string | undefined, yes: boolean): Promise<n
 }
 
 function printSessions(io: Io): number {
-  const root = findProjectRoot(io.cwd);
+  const root = resolve(io.cwd);
   const all = listSessions(tehHome(io.env), root);
   if (all.length === 0) {
     io.out("No sessions yet in this project.\n");

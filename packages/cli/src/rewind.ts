@@ -1,6 +1,7 @@
 // `teh rewind`: go back to any titled point of a session, restoring code, conversation or
 // both (ADR-0004), with the same three choices as Claude Code's /rewind (ADR-0010).
 // Nothing is lost: points you rewind past stay listed, and every rewind adds a point to return to.
+import { resolve } from "node:path";
 import {
   CheckpointError,
   CheckpointStore,
@@ -78,7 +79,7 @@ export async function rewind(io: Io, args: RewindArgs): Promise<number> {
   };
   const root = findProjectRoot(io.cwd);
   const home = tehHome(io.env);
-  const session = loadTarget(io, root, args.session);
+  const session = loadTarget(io, resolve(io.cwd), args.session);
   if (typeof session === "string") return fail(session);
   if (session.points.length === 0) {
     io.out("This session has no points to rewind to yet.\n");
@@ -170,7 +171,7 @@ export async function rewind(io: Io, args: RewindArgs): Promise<number> {
 
     // 5. Apply, then record it so the rewind itself can be rewound.
     if (plan) await store.apply(plan);
-    const log = new SessionLog(home, root, undefined, session);
+    const log = new SessionLog(home, resolve(io.cwd), undefined, session);
     log.append("checkpoint", {
       kind: "rewind",
       title: `Before rewinding to point ${point.n}`,
