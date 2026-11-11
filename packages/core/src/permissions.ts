@@ -62,7 +62,8 @@ export function splitRuleList(text: string): string[] {
 }
 
 export function parseRule(spec: string, source?: string): Rule | undefined {
-  const m = spec.trim().match(/^([A-Za-z_][\w-]*)(?:\(([\s\S]*)\))?$/);
+  // "mcp__github__*" is allowed as a tool name: every tool of that MCP server.
+  const m = spec.trim().match(/^([A-Za-z_][\w-]*(?:__\*)?)(?:\(([\s\S]*)\))?$/);
   if (!m) return undefined;
   const pattern = m[2]?.trim();
   return {
@@ -190,7 +191,7 @@ export function pathRuleMatches(pattern: string, abs: string, root: string, home
 
 function pathsMatch(rule: Rule, access: Access, config: PermissionConfig, ctx: ToolContext): boolean {
   if (rule.pattern === undefined) return true;
-  if (access.kind === "execute") return false;
+  if (access.kind === "execute" || access.kind === "external") return false;
   const root = config.projectRoot ?? ctx.workspaceRoots[0] ?? ctx.cwd;
   const home = config.home ?? homedir();
   const pattern = rule.pattern;
@@ -228,9 +229,17 @@ function firstHit(
   a: Analysis | undefined,
 ): Rule | undefined {
   return rules.find((r) => {
+    if (access.kind === "external") return r.pattern === undefined && mcpRuleMatches(r.tool, tool);
     if (access.kind === "execute") return r.tool === tool && a !== undefined && bashRuleHitsAny(r, access.command, a);
     return ruleApplies(r, tool, access, config, ctx);
   });
+}
+
+// "mcp__github" and "mcp__github__*" match every tool of that server; otherwise the exact name.
+export function mcpRuleMatches(ruleTool: string, tool: string): boolean {
+  if (ruleTool === tool) return true;
+  const server = ruleTool.endsWith("__*") ? ruleTool.slice(0, -3) : ruleTool;
+  return /^mcp__[^_]/.test(server) && !server.slice(5).includes("__") && tool.startsWith(`${server}__`);
 }
 
 export function protectedPath(abs: string): string | undefined {
@@ -302,6 +311,7 @@ function commandAllowed(
 
 // A rule the user could add to allow this action next time.
 export function suggestRule(tool: string, access: Access): string | undefined {
+  if (access.kind === "external") return tool;
   if (access.kind === "write") return tool === "Write" || tool === "Edit" ? "Edit" : tool;
   if (access.kind !== "execute") return undefined;
   const a = parseShell(access.command);
@@ -326,6 +336,18 @@ export function decide(tool: string, access: Access, config: PermissionConfig, c
     return { behavior: "ask", reason, ...(suggestion ? { suggestion } : {}) };
   };
   const asked = firstHit(config.ask ?? [], tool, access, config, ctx, analysis);
+
+  if (access.kind === "external") {
+    if (asked) return ask(`rule ${formatRule(asked)} asks first`);
+    const allowed = firstHit(config.allow, tool, access, config, ctx, undefined);
+    // MCP tools may change anything, so plan mode runs only the ones a rule allows.
+    if (config.mode === "plan")
+      return allowed
+        ? { behavior: "allow", reason: `allowed by rule ${formatRule(allowed)}` }
+        : { behavior: "deny", reason: "plan mode is read-only; an allow rule can let this MCP tool run" };
+    if (allowed) return { behavior: "allow", reason: `allowed by rule ${formatRule(allowed)}` };
+    return ask(`MCP tool from ${access.server}`, true);
+  }
 
   if (access.kind === "read") {
     if (asked) return ask(`rule ${formatRule(asked)} asks first`);

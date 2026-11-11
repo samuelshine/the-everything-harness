@@ -62,6 +62,8 @@ export type AgentOptions = {
   // Skills the model may load with the Skill tool (ADR-0015), and the listing budget.
   skills?: Skill[];
   skillListingChars?: number;
+  // Notes from connected MCP servers for the system prompt (ADR-0017); their tools go in `tools`.
+  mcpInstructions?: { server: string; text: string }[];
   // Output style for the session (ADR-0015); undefined is the default style.
   outputStyle?: OutputStyle;
   // OS sandbox for shell commands (ADR-0003); undefined runs them unsandboxed.
@@ -105,6 +107,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     instructions: renderInstructions(instructions, opts.cwd),
     ...(listing.text ? { skills: listing.text, skillsOmitted: listing.omitted } : {}),
     ...(opts.outputStyle ? { style: opts.outputStyle } : {}),
+    ...(opts.mcpInstructions?.length ? { mcpInstructions: opts.mcpInstructions } : {}),
   });
   const ctx: ToolContext = {
     cwd: opts.cwd,
@@ -394,7 +397,8 @@ async function runTool(
   }
 
   // Reads and read-only commands change nothing, so they need no checkpoint.
-  const changes = access.kind !== "read" && !decision.readOnly;
+  // MCP tools act outside the project as far as teh knows, so they get no checkpoint either.
+  const changes = (access.kind === "write" || access.kind === "execute") && !decision.readOnly;
   if (changes) await beforeChange(access.summary);
   let out: ToolResult;
   try {

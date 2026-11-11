@@ -40,6 +40,7 @@ import {
   tehHome,
   VERSION,
 } from "@everything-harness/core";
+import { planMcp, printMcp, startMcp } from "./mcp";
 import { printHooks, printPermissions, runPermissions, SANDBOX_MODES, type SandboxMode, trust } from "./permissions";
 import { rewind } from "./rewind";
 
@@ -61,7 +62,7 @@ export type Deps = { provider?: (name: string) => Provider };
 export const USAGE = `Usage: teh -p [options] [prompt]
        teh models
        teh rewind [point] | teh undo | teh sessions | teh checkpoints | teh restore <id>
-       teh skills | teh styles | teh hooks | teh permissions | teh trust
+       teh skills | teh styles | teh hooks | teh mcp | teh permissions | teh trust
 
 Run one prompt headlessly and print the result. The prompt can also be piped on stdin.
 The interactive terminal UI is not built yet.
@@ -80,6 +81,9 @@ Options:
                                 {"permissions": {"allow": [...], "ask": [...], "deny": [...]}}.
                                 Read-only commands (ls, cat, grep, git status, …) never ask
   --add-dir <dir...>            Extra directories the agent may change
+  --mcp-config <file|json...>   MCP servers to add, as a file or JSON in .mcp.json's format
+                                (also read: .mcp.json once trusted, and ~/.teh/mcp.json)
+  --strict-mcp-config           Use only the servers from --mcp-config
   --sandbox <mode>              auto (default): run shell commands in the OS sandbox when there is
                                 one (macOS Seatbelt, Linux bubblewrap); on: refuse to run without
                                 it; off: no sandbox (or set TEH_SANDBOX). Commands that ran without
@@ -106,10 +110,11 @@ Commands:
   skills                        List skills and commands; run one with teh -p "/name args"
   styles                        List output styles (--output-style <name>)
   hooks                         List hook commands from settings (Claude Code's "hooks" format)
+  mcp                           Start the configured MCP servers and list their tools
   sessions                      List this project's sessions, newest first
   checkpoints                   List file snapshots taken before each run changed anything
   permissions                   Show the permission rules in effect and where each comes from
-  trust [--revoke]              Let this project's own allow rules, hooks and skill grants apply
+  trust [--revoke]              Let this project's own allow rules, hooks, skill grants and .mcp.json apply
   undo                          Put files back as they were before the last run that changed them
   restore <id>                  Put files back to a checkpoint (undo a restore with the id it prints)
 `;
@@ -138,6 +143,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   if (positionals[0] === "skills") return printSkills(io);
   if (positionals[0] === "styles") return printStyles(io);
   if (positionals[0] === "hooks") return printHooks(io, userHome(io));
+  if (positionals[0] === "mcp") return printMcp(io, v["mcp-config"] ?? [], v["strict-mcp-config"] ?? false);
   if (positionals[0] === "trust") return trust(io, v.revoke ?? false, userHome(io));
   const sandboxMode = (v.sandbox ?? io.env.TEH_SANDBOX) as SandboxMode | undefined;
   if (sandboxMode !== undefined && !SANDBOX_MODES.includes(sandboxMode))
@@ -243,7 +249,11 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     return 2;
   }
 
+  const mcpPlan = planMcp(io, v["mcp-config"] ?? [], v["strict-mcp-config"] ?? false);
+  for (const w of mcpPlan.warnings) io.err(`teh: warning: ${w}\n`);
+
   const started = performance.now();
+  let mcp: Awaited<ReturnType<typeof startMcp>>;
   try {
     const ref = parseModelRef(modelSpec);
     const provider = makeProvider(ref.provider);
@@ -263,6 +273,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       const scores = skillRoute.candidates.filter((c) => skillRoute.chosen.includes(c.name));
       io.err(`› skill router suggests ${scores.map((c) => `${c.name} (${c.score})`).join(", ")}\n`);
     }
+    mcp = await startMcp(io, mcpPlan.servers);
+    const tools = [...builtinTools, ...(mcp?.tools ?? [])];
     const session = new SessionLog(home, root, undefined, resumed);
     const store = new CheckpointStore(home, root);
     const denied: Denied[] = [];
@@ -279,7 +291,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     const onEvent = format === "stream-json" ? streamJson(io) : format === "text" ? text.onEvent : trackDenied(denied);
     if (format === "stream-json") {
       io.out(
-        `${JSON.stringify({ type: "system", subtype: "init", session_id: session.id, model: modelSpec, cwd: io.cwd, tools: builtinTools.map((t) => t.spec.name), permission_mode: mode, sandbox: perms.sandbox?.kind ?? "none" })}\n`,
+        `${JSON.stringify({ type: "system", subtype: "init", session_id: session.id, model: modelSpec, cwd: io.cwd, tools: tools.map((t) => t.spec.name), mcp_servers: (mcp?.servers ?? []).map((s) => ({ name: s.name, status: s.ok ? "connected" : "failed" })), permission_mode: mode, sandbox: perms.sandbox?.kind ?? "none" })}\n`,
       );
     }
 
@@ -288,7 +300,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       model: ref.model,
       prompt,
       cwd: io.cwd,
-      tools: builtinTools,
+      tools,
+      ...(mcp?.instructions.length ? { mcpInstructions: mcp.instructions } : {}),
       permissions: perms.config,
       ...(perms.sandbox ? { sandbox: perms.sandbox } : {}),
       ...(style.style.name !== "default" ? { outputStyle: style.style } : {}),
@@ -348,6 +361,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       return 1;
     }
     throw e;
+  } finally {
+    await mcp?.close();
   }
 }
 
@@ -375,6 +390,8 @@ function parse(argv: string[]) {
       revoke: { type: "boolean" },
       sandbox: { type: "string" },
       "output-style": { type: "string" },
+      "mcp-config": { type: "string", multiple: true },
+      "strict-mcp-config": { type: "boolean" },
       version: { type: "boolean", short: "v" },
       help: { type: "boolean", short: "h" },
     },

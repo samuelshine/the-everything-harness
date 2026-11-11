@@ -3,7 +3,7 @@
 A model-agnostic, **terminal-first** agent harness. You should be able to use it the way you use Claude Code: start it in a repo, talk to it, and let it read, edit and run things under rules you control. It handles context, tools, memory, skills, plugins/MCP, delegation, verification and safety, and works across LLM providers.
 
 ## Status
-**Early development.** Headless mode (`teh -p`) works with local models through [Ollama](https://ollama.com): it reads, searches, edits and runs commands under permission rules, and logs each session. `teh undo` reverts a run's file changes. Hooks run in Claude Code's format. There is no interactive UI and no cloud providers yet. Background reading:
+**Early development.** Headless mode (`teh -p`) works with local models through [Ollama](https://ollama.com): it reads, searches, edits and runs commands under permission rules, and logs each session. `teh undo` reverts a run's file changes. Hooks run in Claude Code's format, and it connects to MCP servers over stdio and HTTP. There is no interactive UI and no cloud providers yet. Background reading:
 - [Product brief](docs/product.md): name, audience, and the product decisions so far.
 - [Synthesis](docs/research/00-synthesis.md): principles, reference architecture, build order, open decisions.
 - [Terminal harness requirements](docs/research/10-terminal-harness.md): what "usable like Claude Code" means, feature by feature.
@@ -83,6 +83,15 @@ Hooks run your own commands at fixed points in the loop, in Claude Code's format
 - **Blocking:** exit code 2 blocks the action, and stderr tells the model (or you, for a prompt) why. A `Stop` hook that exits 2 sends the model back to work.
 - **Permissions:** a `PreToolUse` hook can deny anything, even in `bypassPermissions` mode. Its `"allow"` skips the question but, unlike in Claude Code, never overrides a deny rule (ADR-0016).
 - **Trust:** a repo's own hooks run only after `teh trust`. `teh hooks` lists every hook and whether it runs here.
+MCP servers add tools from outside `teh` (GitHub, a browser, a database). Configure them in Claude Code's format, in `.mcp.json` in the project, `~/.teh/mcp.json`, or `--mcp-config`:
+```json
+{"mcpServers": {"github": {"type": "http", "url": "https://api.githubcopilot.com/mcp/", "headers": {"Authorization": "Bearer ${GITHUB_TOKEN}"}}}}
+```
+- **Transports:** stdio servers (`"command"`, `"args"`, `"env"`) and streamable HTTP servers (`"type": "http"`). OAuth sign-in isn't supported yet; use a header.
+- **Tool names:** each tool is named `mcp__<server>__<tool>`, so Claude Code permission rules carry over.
+- **Permissions:** every MCP call asks first. `--allowedTools mcp__github` allows a whole server; `mcp__github__get_issue` allows one tool. `acceptEdits` doesn't cover MCP tools, and plan mode runs only the allowed ones.
+- **Trust:** a repo's `.mcp.json` servers start only after `teh trust`.
+- **Checking:** `teh mcp` starts each server and lists its tools.
 
 Each run is saved as a session. `teh -p -c "..."` continues the most recent one with its full conversation and model. `teh sessions` lists them, and `teh -p -r <id> "..."` continues a specific one.
 

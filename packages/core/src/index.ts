@@ -6,6 +6,7 @@ export * from "./agent";
 export * from "./checkpoints";
 export * from "./hooks";
 export * from "./instructions";
+export * from "./mcp";
 export * from "./permissions";
 export * from "./providers";
 export * from "./providers/fake";

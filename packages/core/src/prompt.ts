@@ -12,6 +12,8 @@ export type PromptEnv = {
   skillsOmitted?: number;
   // The session's output style (ADR-0015); none or "default" keeps the base prompt.
   style?: { name: string; body: string; keepCodingInstructions: boolean };
+  // Usage notes that connected MCP servers sent when they started (ADR-0017).
+  mcpInstructions?: { server: string; text: string }[];
 };
 
 const IDENTITY = `You are teh (The Everything Harness), a coding agent working in the user's terminal.
@@ -58,6 +60,14 @@ date: ${env.date}
 Skills are instructions for specific kinds of task. When the user's request matches a skill's description, call the Skill tool with that skill's name before starting, then follow what it returns. If a skill's instructions are already in the conversation, follow them without loading it again.
 ${env.skills}${env.skillsOmitted ? `\n(${env.skillsOmitted} more skills are not listed; the Skill tool can still load them by name.)` : ""}
 </skills>`);
+  }
+  if (env.mcpInstructions?.length) {
+    const notes = env.mcpInstructions.map(
+      (m) => `<server name="${m.server}">\n${m.text.trim().slice(0, 4000)}\n</server>`,
+    );
+    parts.push(
+      `<mcp_servers>\nThese servers provide the mcp__<server>__* tools. Their notes on using them:\n${notes.join("\n")}\n</mcp_servers>`,
+    );
   }
   if (env.instructions) {
     parts.push(
