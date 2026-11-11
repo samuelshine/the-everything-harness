@@ -9,6 +9,7 @@ import {
   CheckpointError,
   CheckpointStore,
   createProvider,
+  DEFAULT_CACHE_RETENTION_DAYS,
   DEFAULT_EMBED_MODEL,
   DEFAULT_STYLE,
   expandSkill,
@@ -28,6 +29,7 @@ import {
   ProviderError,
   parseModelRef,
   parseSlash,
+  pruneCaches,
   type RestorePlan,
   ROUTER_MODES,
   type RouteResult,
@@ -37,6 +39,7 @@ import {
   type Skill,
   SkillRouter,
   similarNames,
+  TranscriptCache,
   tehHome,
   VERSION,
 } from "@everything-harness/core";
@@ -68,12 +71,15 @@ export const USAGE = `Usage: teh [options] [prompt]
        teh rewind [point] | teh undo | teh sessions | teh checkpoints | teh restore <id>
        teh skills | teh styles | teh hooks | teh mcp | teh permissions | teh trust
 
-Start the interactive terminal UI, optionally with a first prompt. With -p, run one prompt
-headlessly and print the result; the prompt can also be piped on stdin.
+Start the interactive terminal UI (full screen), optionally with a first prompt. With -p, run
+one prompt headlessly and print the result; the prompt can also be piped on stdin.
 
 Options:
   -p, --print                   Run headlessly: one prompt, print the result, exit
-  -c, --continue                Continue the most recent session in this project
+  --inline                      Draw the interactive UI inline in the scrollback instead of full screen
+  -c, --continue                Continue the most recent session in this project. Its on-screen
+                                transcript is cached for 3 days ("cacheRetentionDays" in
+                                ~/.teh/settings.json); the conversation itself is kept after that
   -r, --resume <id>             Continue a session by id (or prefix); \`teh sessions\` lists them
   --model <provider:model>      Model to use, e.g. ollama:gemma4:e4b (or set TEH_MODEL; a resumed
                                 session keeps its model unless you pass one)
@@ -198,6 +204,9 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
 
   const root = findProjectRoot(io.cwd);
   const home = tehHome(io.env);
+  // Session caches past their retention go first (ADR-0018). Conversations are kept.
+  const cacheDays = loadSettings(home, root, userHome(io)).cacheRetentionDays ?? DEFAULT_CACHE_RETENTION_DAYS;
+  pruneCaches(home, cacheDays);
   const loaded = loadSkills(home, root, userHome(io));
   for (const p of loaded.problems) io.err(`teh: warning: skipped ${p.path}: ${p.message}\n`);
   const perms = runPermissions(io, {
@@ -308,6 +317,9 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       const app: TuiApp = new TuiApp({
         terminal: io.terminal(),
         color: !io.env.NO_COLOR && io.env.TERM !== "dumb",
+        fullscreen: !v.inline && io.env.TERM !== "dumb",
+        transcript: new TranscriptCache(home, root),
+        cacheDays,
         agent: {
           provider,
           model: ref.model,
@@ -445,6 +457,7 @@ function parse(argv: string[]) {
       "output-style": { type: "string" },
       "mcp-config": { type: "string", multiple: true },
       "strict-mcp-config": { type: "boolean" },
+      inline: { type: "boolean" },
       version: { type: "boolean", short: "v" },
       help: { type: "boolean", short: "h" },
     },

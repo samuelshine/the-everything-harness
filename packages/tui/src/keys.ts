@@ -29,7 +29,14 @@ export type Key =
         | "ctrlK"
         | "ctrlU"
         | "ctrlL"
-        | "ctrlO";
+        | "ctrlO"
+        // Scrolling the full-screen transcript.
+        | "pageUp"
+        | "pageDown"
+        | "scrollUp"
+        | "scrollDown"
+        | "top"
+        | "bottom";
     };
 
 const PASTE_START = "\x1b[200~";
@@ -45,7 +52,15 @@ const CSI_KEYS: Record<string, Key["kind"]> = {
   Z: "shiftTab",
 };
 
-const TILDE_KEYS: Record<string, Key["kind"]> = { "1": "home", "7": "home", "4": "end", "8": "end", "3": "delete" };
+const TILDE_KEYS: Record<string, Key["kind"]> = {
+  "1": "home",
+  "7": "home",
+  "4": "end",
+  "8": "end",
+  "3": "delete",
+  "5": "pageUp",
+  "6": "pageDown",
+};
 
 // Stateful, because a paste or an escape sequence can arrive split across reads.
 export class KeyParser {
@@ -105,13 +120,20 @@ export class KeyParser {
       const n = b[1] as string;
       if (n === "[" || n === "O") {
         // CSI: ESC [ params final; SS3: ESC O final
-        const m = b.slice(2).match(/^([0-9;:?]*)([A-Za-z~])/);
+        const m = b.slice(2).match(/^([0-9;:?<]*)([A-Za-z~])/);
         if (!m) return b.length > 16 ? 1 : 0;
         const params = m[1] as string;
         const final = m[2] as string;
         const len = 2 + m[0].length;
         const parts = params.split(";");
         const mod = Number(parts[1] ?? 1) - 1; // 1 shift, 2 alt, 4 ctrl
+        if (params.startsWith("<")) {
+          // SGR mouse: ESC [ < button ; x ; y M. Only the wheel is used.
+          const button = Number(params.slice(1).split(";")[0]);
+          if (final === "M" && button === 64) k("scrollUp");
+          else if (final === "M" && button === 65) k("scrollDown");
+          return len;
+        }
         if (final === "~") {
           // xterm modifyOtherKeys: ESC [ 27 ; mod ; 13 ~
           if (parts[0] === "27" && parts[2] === "13") k(mod ? "newline" : "enter");
@@ -130,6 +152,8 @@ export class KeyParser {
         const kind = CSI_KEYS[final];
         if (kind) {
           if ((kind === "left" || kind === "right") && mod & 6) k(kind === "left" ? "wordLeft" : "wordRight");
+          else if ((kind === "up" || kind === "down") && mod & 1) k(kind === "up" ? "scrollUp" : "scrollDown");
+          else if ((kind === "home" || kind === "end") && mod & 4) k(kind === "home" ? "top" : "bottom");
           else k(kind);
         }
         return len;

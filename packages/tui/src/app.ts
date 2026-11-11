@@ -25,8 +25,9 @@ import {
   type Usage,
 } from "@everything-harness/core";
 import { Editor } from "./editor";
+import { FullscreenRenderer } from "./fullscreen";
 import { type Key, KeyParser } from "./keys";
-import { InlineRenderer } from "./renderer";
+import { InlineRenderer, type Screen } from "./renderer";
 import { BRACKETED_PASTE_OFF, BRACKETED_PASTE_ON, HIDE_CURSOR, SHOW_CURSOR, type TerminalIo } from "./terminal";
 import { makeStyle, type Style, wrap } from "./text";
 
@@ -47,6 +48,12 @@ export type TuiOptions = {
   // Hooks for a session (ADR-0016); called again after /clear with the new session.
   hooksFor?: (session: SessionLog) => HookRunner;
   resumed?: boolean;
+  // Full screen on the alternate screen (ADR-0018, the default in the CLI), or inline (ADR-0005).
+  fullscreen?: boolean;
+  // Where each session's transcript is cached, so a resumed session redraws as it looked.
+  transcript?: { load(sessionId: string): string[] | undefined; append(sessionId: string, lines: string[]): void };
+  // How long that cache is kept, for the note shown when it has expired.
+  cacheDays?: number;
   // Animate the spinner. Off in tests, where output must be deterministic.
   animate?: boolean;
   escapeDelayMs?: number;
@@ -70,11 +77,19 @@ const BUILTIN_COMMANDS: [string, string][] = [
   ["mode", "Cycle the permission mode (also Shift+Tab)"],
   ["exit", "Quit (also Ctrl+D)"],
 ];
+const SCROLL_KEYS: Partial<Record<Key["kind"], ["line" | "page" | "end", 1 | -1]>> = {
+  pageUp: ["page", 1],
+  pageDown: ["page", -1],
+  scrollUp: ["line", 1],
+  scrollDown: ["line", -1],
+  top: ["end", 1],
+  bottom: ["end", -1],
+};
 const SPINNER = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
 export class TuiApp {
   private readonly style: Style;
-  private readonly renderer: InlineRenderer;
+  private readonly renderer: Screen;
   private readonly keys = new KeyParser();
   private readonly editor = new Editor();
   private history: Item[];
@@ -99,7 +114,13 @@ export class TuiApp {
 
   constructor(private readonly opts: TuiOptions) {
     this.style = makeStyle(opts.color);
-    this.renderer = new InlineRenderer(opts.terminal);
+    this.renderer = opts.fullscreen
+      ? new FullscreenRenderer(opts.terminal, {
+          header: (cols) => this.header(cols),
+          dim: this.style.dim,
+          mouse: true,
+        })
+      : new InlineRenderer(opts.terminal);
     this.history = opts.history ?? [];
     this.session = opts.session;
     this.hooks = opts.hooksFor?.(this.session);
@@ -123,12 +144,9 @@ export class TuiApp {
     t.write(BRACKETED_PASTE_ON + HIDE_CURSOR);
     this.cleanups.push(t.onData((d) => this.onData(d)));
     this.cleanups.push(t.onResize(() => this.renderer.redraw()));
+    this.renderer.enter?.();
     this.renderer.commit(this.banner());
-    if (this.history.length)
-      this.renderer.commit([
-        this.style.dim(`  resumed: ${this.countPrompts()} earlier prompt(s) in this conversation`),
-        "",
-      ]);
+    if (this.history.length) this.showEarlier();
     const done = new Promise<number>((resolve) => {
       this.finished = resolve;
     });
@@ -145,6 +163,7 @@ export class TuiApp {
     for (const c of this.cleanups.splice(0)) c();
     this.renderer.flush();
     this.renderer.clear();
+    this.renderer.leave?.();
     const t = this.opts.terminal;
     if (this.countPrompts())
       t.write(
@@ -173,6 +192,12 @@ export class TuiApp {
   }
 
   onKey(k: Key) {
+    // Scrolling works in every state, approvals included.
+    const scroll = SCROLL_KEYS[k.kind];
+    if (scroll) {
+      this.renderer.scroll?.(scroll[0], scroll[1]);
+      return;
+    }
     if (k.kind !== "ctrlC") this.exitArmed = false;
     if (this.approval) return this.onApprovalKey(k);
     if (k.kind === "ctrlC") {
@@ -211,7 +236,7 @@ export class TuiApp {
       const label = ok
         ? this.style.green(always ? "✓ allowed for this session" : "✓ allowed")
         : this.style.red("✗ not allowed");
-      this.renderer.commit([`  ${label}`]);
+      this.print([`  ${label}`]);
       if (always && a.suggestion) this.permissions.allow.push(...parseRules([a.suggestion], "this session"));
       a.resolve(ok);
       this.render();
@@ -258,7 +283,7 @@ export class TuiApp {
       const skill = (this.opts.agent.skills ?? []).find((s: Skill) => s.name === slash.name && s.userInvocable);
       if (!skill) {
         const near = similarNames(slash.name, this.opts.agent.skills ?? []);
-        this.renderer.commit([
+        this.print([
           this.style.red(
             `  no command named /${slash.name}${near.length ? `; did you mean ${near.map((n) => `/${n}`).join(", ")}?` : ""}`,
           ),
@@ -280,12 +305,17 @@ export class TuiApp {
         this.quit(0);
         return true;
       case "help":
-        this.renderer.commit([
+        this.print([
           "",
           s.bold("Keys"),
           "  Enter send · Shift+Enter, Alt+Enter or \\ then Enter: new line · ↑/↓ history",
           "  Esc interrupt · Shift+Tab cycle permission mode · Ctrl+C clear, twice to quit · Ctrl+D quit",
           "  Typing while teh works queues your message for when it finishes.",
+          ...(this.opts.fullscreen
+            ? [
+                "  Scroll: mouse wheel, PgUp/PgDn, Shift+↑/↓, Ctrl+Home/End · select text with Shift (Option on macOS) held",
+              ]
+            : []),
           s.bold("Commands"),
           ...BUILTIN_COMMANDS.map(([n, d]) => `  /${n.padEnd(10)} ${d}`),
           ...(this.opts.agent.skills ?? [])
@@ -300,14 +330,15 @@ export class TuiApp {
         this.session = this.opts.newSession();
         this.hooks = this.opts.hooksFor?.(this.session);
         this.sessionStart = "clear";
+        this.renderer.reset?.();
         this.usage = emptyUsage();
         this.lastInput = 0;
-        this.renderer.commit(["", s.dim("  (new conversation)"), ""]);
+        this.print(["", s.dim("  (new conversation)"), ""]);
         this.render();
         return true;
       case "cost": {
         const u = this.usage;
-        this.renderer.commit([
+        this.print([
           s.dim(
             `  tokens this session: ${fmt(u.input)} in (${fmt(u.cachedRead)} cached) · ${fmt(u.output)} out · context now ${fmt(this.lastInput)}`,
           ),
@@ -325,11 +356,7 @@ export class TuiApp {
 
   private async runPrompt(shown: string, prompt: string, slash: { name: string; args: string } | undefined) {
     const s = this.style;
-    this.renderer.commit([
-      "",
-      ...shown.split("\n").map((l, i) => `${i === 0 ? s.bold(s.cyan("›")) : " "} ${s.bold(l)}`),
-      "",
-    ]);
+    this.print(["", ...shown.split("\n").map((l, i) => `${i === 0 ? s.bold(s.cyan("›")) : " "} ${s.bold(l)}`), ""]);
     const abort = new AbortController();
     this.running = { abort, started: Date.now(), prompt };
     this.textStarted = false;
@@ -358,16 +385,15 @@ export class TuiApp {
       });
       this.flushText();
       this.history = res.items;
-      if (res.stopReason === "max_turns") this.renderer.commit([s.yellow(`  stopped after ${res.turns} turns`)]);
+      if (res.stopReason === "max_turns") this.print([s.yellow(`  stopped after ${res.turns} turns`)]);
       if (res.stopReason === "hook_blocked" || res.stopReason === "hook_stopped") this.history = this.reload();
     } catch (e) {
       this.flushText();
       this.history = this.reload();
-      if (abort.signal.aborted)
-        this.renderer.commit([s.red("  ⎿ Interrupted") + s.dim(" · tell teh what to do instead")]);
+      if (abort.signal.aborted) this.print([s.red("  ⎿ Interrupted") + s.dim(" · tell teh what to do instead")]);
       else if (e instanceof ProviderError)
-        this.renderer.commit([s.red(`  ✗ ${e.message}`), ...(e.hint ? [s.dim(`    fix: ${e.hint}`)] : [])]);
-      else this.renderer.commit([s.red(`  ✗ ${(e as Error).message}`)]);
+        this.print([s.red(`  ✗ ${e.message}`), ...(e.hint ? [s.dim(`    fix: ${e.hint}`)] : [])]);
+      else this.print([s.red(`  ✗ ${(e as Error).message}`)]);
     } finally {
       this.sessionStart = undefined;
       this.running = undefined;
@@ -418,22 +444,22 @@ export class TuiApp {
         break;
       case "tool_call":
         this.flushText();
-        this.renderer.commit([`${s.green("●")} ${s.bold(e.summary ?? e.name)}`]);
+        this.print([`${s.green("●")} ${s.bold(e.summary ?? e.name)}`]);
         break;
       case "tool_result":
-        this.renderer.commit(this.resultLines(e.name, e.content, e.isError));
+        this.print(this.resultLines(e.name, e.content, e.isError));
         break;
       case "approval":
         if (e.behavior === "deny" && !e.reason.startsWith("approved")) {
           // Asked-and-refused shows in the approval prompt already.
-          if (!e.reason.endsWith("needs approval")) this.renderer.commit([s.red(`  ✗ ${e.reason}`)]);
+          if (!e.reason.endsWith("needs approval")) this.print([s.red(`  ✗ ${e.reason}`)]);
         }
         break;
       case "hook":
-        this.renderer.commit([s.yellow(`  ${e.event} hook: ${e.message}`)]);
+        this.print([s.yellow(`  ${e.event} hook: ${e.message}`)]);
         break;
       case "warning":
-        this.renderer.commit([s.yellow(`  ! ${e.message}`)]);
+        this.print([s.yellow(`  ! ${e.message}`)]);
         break;
       case "turn_end":
         this.usage = addUsage(this.usage, e.usage);
@@ -452,11 +478,11 @@ export class TuiApp {
     if (nl < 0) return;
     const done = this.partial.slice(0, nl);
     this.partial = this.partial.slice(nl + 1);
-    this.renderer.commit(this.textLines(done));
+    this.print(this.textLines(done));
   }
 
   private flushText() {
-    if (this.partial) this.renderer.commit(this.textLines(this.partial));
+    if (this.partial) this.print(this.textLines(this.partial));
     this.partial = "";
   }
 
@@ -579,6 +605,40 @@ export class TuiApp {
     ];
   }
 
+  // Print lines into the transcript, and keep them in the session's cache.
+  private print(lines: string[]) {
+    this.renderer.commit(lines);
+    this.opts.transcript?.append(this.session.id, lines);
+  }
+
+  // A resumed session: its cached transcript as it was shown, or, once the cache has
+  // expired, a plainer one rebuilt from the conversation.
+  private showEarlier() {
+    const s = this.style;
+    const cached = this.opts.transcript?.load(this.session.id);
+    if (cached?.length) {
+      this.renderer.commit([s.dim("  ── earlier in this session ──"), ...cached, s.dim("  ── resumed ──"), ""]);
+      return;
+    }
+    const days = this.opts.cacheDays;
+    this.print([
+      s.dim(
+        `  ── earlier in this session (rebuilt from the conversation${this.opts.transcript ? `; the detailed view is kept ${days ?? 3} day(s)` : ""}) ──`,
+      ),
+      ...rebuildTranscript(this.history, s),
+      s.dim("  ── resumed ──"),
+      "",
+    ]);
+  }
+
+  private header(cols: number): string {
+    const s = this.style;
+    const left = `${s.bold("teh")} ${s.dim(`· ${this.opts.modelLabel}`)}`;
+    const right = s.dim(this.opts.agent.cwd);
+    const gap = cols - 1 - visible(left) - visible(right);
+    return gap >= 2 ? left + " ".repeat(gap) + right : left;
+  }
+
   private countPrompts(): number {
     return this.history.filter((i) => i.kind === "text" && i.role === "user").length;
   }
@@ -597,6 +657,28 @@ function inlineMarkdown(line: string, s: Style): string {
   return line
     .replace(/\*\*([^*]+)\*\*/g, (_, t: string) => s.bold(t))
     .replace(/`([^`]+)`/g, (_, t: string) => s.cyan(t));
+}
+
+// A transcript made from the conversation alone: prompts, replies, tool calls and the first
+// line of each result. Used when a session's cached view has expired.
+export function rebuildTranscript(items: Item[], s: Style): string[] {
+  const out: string[] = [];
+  for (const item of items) {
+    if (item.kind === "text" && item.role === "user") {
+      if (/^\w+ hook: /.test(item.text)) continue;
+      out.push("", ...item.text.split("\n").map((l, i) => `${i === 0 ? s.bold(s.cyan("›")) : " "} ${s.bold(l)}`), "");
+    } else if (item.kind === "text") {
+      out.push(...item.text.split("\n").map((l, i) => `${i === 0 ? s.bold("●") : " "} ${inlineMarkdown(l, s)}`));
+    } else if (item.kind === "tool_call") {
+      const a = (typeof item.args === "object" && item.args ? item.args : {}) as Record<string, unknown>;
+      const what = [a.file_path, a.command, a.pattern, a.path].find((v) => typeof v === "string") as string | undefined;
+      out.push(`${s.green("●")} ${s.bold(item.name)}${what ? ` ${what.split("\n")[0]?.slice(0, 100)}` : ""}`);
+    } else if (item.kind === "tool_result") {
+      const head = (item.content.split("\n").find((l) => l.trim()) ?? "").slice(0, 160);
+      out.push(`  ${item.isError ? s.red(`⎿ ${head}`) : s.dim(`⎿ ${head}`)}`);
+    }
+  }
+  return out;
 }
 
 export async function runTui(opts: TuiOptions): Promise<number> {

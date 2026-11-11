@@ -21,6 +21,9 @@ export type LoadedSettings = {
   sandbox: { user: SandboxSettings; project: SandboxSettings };
   // "outputStyle": a style name (ADR-0015). The project's wins over the user's, as in Claude Code.
   outputStyle: { user?: string; project?: string };
+  // "cacheRetentionDays" (ADR-0018): days to keep each session's UI cache. User settings only,
+  // since it is about the user's disk, not the project.
+  cacheRetentionDays?: number;
   // "hooks" (ADR-0016). Project hooks run only once the folder is trusted.
   hooks: { user: HookConfig; project: HookConfig };
   // Files that were read, and problems with ones that could not be.
@@ -68,6 +71,10 @@ export function loadSettings(tehHome: string, projectRoot: string, home = homedi
     const hooks = parseHooks((data as { hooks?: unknown })?.hooks, path);
     out.hooks[f.scope] = mergeHooks(out.hooks[f.scope], hooks.config);
     for (const message of hooks.problems) out.problems.push({ path, message });
+    const retention = (data as { cacheRetentionDays?: unknown })?.cacheRetentionDays;
+    if (typeof retention === "number" && retention >= 0 && f.scope === "user") out.cacheRetentionDays = retention;
+    else if (retention !== undefined && f.scope === "user")
+      out.problems.push({ path, message: "cacheRetentionDays must be a number of days (0 or more)" });
     const style = (data as { outputStyle?: unknown })?.outputStyle;
     if (typeof style === "string" && style.trim()) out.outputStyle[f.scope] = style.trim();
     else if (style !== undefined) out.problems.push({ path, message: "outputStyle must be a style name" });

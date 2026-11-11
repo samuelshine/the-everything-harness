@@ -16,7 +16,21 @@ const CLEAR_LINE = "\x1b[2K";
 const CLEAR_DOWN = "\x1b[J";
 const up = (n: number) => (n > 0 ? `\x1b[${n}A` : "");
 
-export class InlineRenderer {
+// What the app draws through. Inline and full-screen renderers both implement it.
+export interface Screen {
+  commit(lines: string[]): void;
+  setLive(lines: string[]): void;
+  flush(): void;
+  redraw(): void;
+  clear(): void;
+  // Full screen only: take over and give back the terminal, scroll the transcript, empty it.
+  enter?(): void;
+  leave?(): void;
+  scroll?(by: "line" | "page" | "end", direction: 1 | -1): void;
+  reset?(): void;
+}
+
+export class InlineRenderer implements Screen {
   private shown: string[] = [];
   private live: string[] = [];
   private pending: string[] = [];
