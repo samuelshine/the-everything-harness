@@ -1,7 +1,9 @@
 // Read, Write and Edit. Edits and overwrites require a fresh Read of the file, so the
 // model never changes a file it has not seen or that changed underneath it.
+
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname } from "node:path";
+import { diffSnippet, plural } from "./diff";
 import { bool, display, int, obj, resolvePath, str, type Tool, type ToolContext, ToolInputError } from "./tool";
 
 const MAX_LINES = 2000;
@@ -99,10 +101,17 @@ export const writeTool: Tool<WriteArgs> = {
       const stale = requireFreshRead(p, ctx);
       if (stale) return { content: stale, isError: true };
     }
+    const before = existsSync(p) ? readFileSync(p, "utf8") : undefined;
     mkdirSync(dirname(p), { recursive: true });
     writeFileSync(p, a.content);
     ctx.readState.set(p, mtime(p));
-    return { content: `wrote ${display(p, ctx)}` };
+    const lines = a.content.split("\n").length;
+    if (before === undefined) return { content: `created ${display(p, ctx)} (${plural(lines, "line")})` };
+    if (before === a.content) return { content: `wrote ${display(p, ctx)}: content unchanged` };
+    const d = diffSnippet(before, a.content);
+    return {
+      content: `overwrote ${display(p, ctx)}: ${plural(d.removed, "line")} removed, ${plural(d.added, "line")} added. Check this is what you meant:\n${d.text}`,
+    };
   },
 };
 
@@ -160,8 +169,10 @@ export const editTool: Tool<EditArgs> = {
       : text.replace(a.oldString, () => a.newString);
     writeFileSync(p, next);
     ctx.readState.set(p, mtime(p));
+    const d = diffSnippet(text, next);
+    const n = a.replaceAll ? count : 1;
     return {
-      content: `edited ${display(p, ctx)} (${a.replaceAll ? count : 1} replacement${count > 1 && a.replaceAll ? "s" : ""})`,
+      content: `edited ${display(p, ctx)} (${plural(n, "replacement")}): ${plural(d.removed, "line")} removed, ${plural(d.added, "line")} added. Check this is what you meant:\n${d.text}`,
     };
   },
 };
