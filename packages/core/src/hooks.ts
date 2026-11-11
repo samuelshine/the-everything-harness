@@ -11,11 +11,12 @@ export const HOOK_EVENTS = [
   "SessionStart",
   "SessionEnd",
   "Notification",
+  "PreCompact",
 ] as const;
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
 // Claude Code events teh does not fire yet. Accepted in settings so a shared file loads cleanly.
-export const LATER_HOOK_EVENTS = ["SubagentStop", "PreCompact"] as const;
+export const LATER_HOOK_EVENTS = ["SubagentStop"] as const;
 
 export type HookCommand = { command: string; timeoutSec?: number; source: string };
 export type HookGroup = { matcher?: string; hooks: HookCommand[] };
@@ -113,7 +114,8 @@ export type HookInput =
   | { hook_event_name: "Stop"; stop_hook_active: boolean }
   | { hook_event_name: "SessionStart"; source: "startup" | "resume" | "clear" | "compact" }
   | { hook_event_name: "SessionEnd"; reason: "clear" | "logout" | "prompt_input_exit" | "other" }
-  | { hook_event_name: "Notification"; message: string };
+  | { hook_event_name: "Notification"; message: string }
+  | { hook_event_name: "PreCompact"; trigger: "manual" | "auto"; custom_instructions: string };
 
 // The combined answer of every hook that ran for one event.
 export type HookOutcome = {

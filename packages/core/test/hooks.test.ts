@@ -62,7 +62,7 @@ describe("parseHooks", () => {
     const { config, problems } = parseHooks(
       {
         PreToolUse: [{ matcher: "Edit|Write", hooks: [{ type: "command", command: "lint.sh", timeout: 5 }] }],
-        PreCompact: [{ hooks: [{ type: "command", command: "x" }] }],
+        SubagentStop: [{ hooks: [{ type: "command", command: "x" }] }],
         Bogus: [],
         Stop: [{ matcher: "(", hooks: [{ type: "command", command: "y" }] }],
         PostToolUse: [{ hooks: [{ type: "prompt", prompt: "z" }] }],
@@ -77,7 +77,7 @@ describe("parseHooks", () => {
     expect(problems.join("\n")).toContain("not a valid pattern");
     expect(problems.join("\n")).toContain('only {"type": "command"');
     // Events teh does not fire yet load without complaint.
-    expect(problems.join("\n")).not.toContain("PreCompact");
+    expect(problems.join("\n")).not.toContain("SubagentStop");
   });
 });
 

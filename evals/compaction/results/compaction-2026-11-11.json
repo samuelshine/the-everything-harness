@@ -1,0 +1,201 @@
+{
+  "model": "ollama:gemma4:e4b",
+  "runs": 5,
+  "arms": {
+    "compact": {
+      "numCtx": 12288,
+      "autoCompact": true
+    },
+    "off": {
+      "numCtx": 12288,
+      "autoCompact": false
+    },
+    "wide": {
+      "numCtx": 65536,
+      "autoCompact": true
+    }
+  },
+  "prompt": "Read config.py and note SECRET_CODE. Then read mod1.py, mod2.py, mod3.py, mod4.py, mod5.py and mod6.py one at a time with the Read tool; each ends with a TAG line, note each TAG. Finally write answer.txt with the secret code on the first line and the six tags, in module order, on the next six lines. Values only, no quotes.",
+  "results": [
+    {
+      "arm": "compact",
+      "run": 1,
+      "pass": true,
+      "secret": true,
+      "tags": 6,
+      "compactions": 2,
+      "seconds": 101.3,
+      "input": 49661,
+      "output": 4337,
+      "stop": "end"
+    },
+    {
+      "arm": "compact",
+      "run": 2,
+      "pass": true,
+      "secret": true,
+      "tags": 6,
+      "compactions": 2,
+      "seconds": 91.9,
+      "input": 48804,
+      "output": 3794,
+      "stop": "end"
+    },
+    {
+      "arm": "compact",
+      "run": 3,
+      "pass": true,
+      "secret": true,
+      "tags": 6,
+      "compactions": 3,
+      "seconds": 122.9,
+      "input": 45946,
+      "output": 4674,
+      "stop": "end"
+    },
+    {
+      "arm": "compact",
+      "run": 4,
+      "pass": true,
+      "secret": true,
+      "tags": 6,
+      "compactions": 2,
+      "seconds": 102.2,
+      "input": 48949,
+      "output": 3522,
+      "stop": "end"
+    },
+    {
+      "arm": "compact",
+      "run": 5,
+      "pass": true,
+      "secret": true,
+      "tags": 6,
+      "compactions": 2,
+      "seconds": 114.5,
+      "input": 49309,
+      "output": 3967,
+      "stop": "end"
+    },
+    {
+      "arm": "off",
+      "run": 1,
+      "pass": false,
+      "secret": false,
+      "tags": 0,
+      "compactions": 0,
+      "seconds": 32.9,
+      "input": 29241,
+      "output": 588,
+      "stop": "end"
+    },
+    {
+      "arm": "off",
+      "run": 2,
+      "pass": false,
+      "secret": false,
+      "tags": 0,
+      "compactions": 0,
+      "seconds": 88.1,
+      "input": 64440,
+      "output": 2994,
+      "stop": "max_tokens"
+    },
+    {
+      "arm": "off",
+      "run": 3,
+      "pass": false,
+      "secret": false,
+      "tags": 0,
+      "compactions": 0,
+      "seconds": 56.2,
+      "input": 60513,
+      "output": 1710,
+      "stop": "end"
+    },
+    {
+      "arm": "off",
+      "run": 4,
+      "pass": false,
+      "secret": false,
+      "tags": 0,
+      "compactions": 0,
+      "seconds": 40.7,
+      "input": 0,
+      "output": 0,
+      "stop": "no output"
+    },
+    {
+      "arm": "off",
+      "run": 5,
+      "pass": false,
+      "secret": false,
+      "tags": 0,
+      "compactions": 0,
+      "seconds": 38.1,
+      "input": 59943,
+      "output": 907,
+      "stop": "end"
+    },
+    {
+      "arm": "wide",
+      "run": 1,
+      "pass": true,
+      "secret": true,
+      "tags": 6,
+      "compactions": 0,
+      "seconds": 60.5,
+      "input": 127438,
+      "output": 1172,
+      "stop": "end"
+    },
+    {
+      "arm": "wide",
+      "run": 2,
+      "pass": true,
+      "secret": true,
+      "tags": 6,
+      "compactions": 0,
+      "seconds": 54.4,
+      "input": 127280,
+      "output": 1029,
+      "stop": "end"
+    },
+    {
+      "arm": "wide",
+      "run": 3,
+      "pass": true,
+      "secret": true,
+      "tags": 6,
+      "compactions": 0,
+      "seconds": 65.5,
+      "input": 128802,
+      "output": 1469,
+      "stop": "end"
+    },
+    {
+      "arm": "wide",
+      "run": 4,
+      "pass": true,
+      "secret": true,
+      "tags": 6,
+      "compactions": 0,
+      "seconds": 55.3,
+      "input": 127002,
+      "output": 1051,
+      "stop": "end"
+    },
+    {
+      "arm": "wide",
+      "run": 5,
+      "pass": true,
+      "secret": true,
+      "tags": 6,
+      "compactions": 0,
+      "seconds": 56.1,
+      "input": 127330,
+      "output": 1086,
+      "stop": "end"
+    }
+  ]
+}

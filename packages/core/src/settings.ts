@@ -31,6 +31,9 @@ export type LoadedSettings = {
   checkpointRetentionDays?: number;
   // "screen": "fullscreen" or "inline" (ADR-0018). User settings only.
   screen?: "fullscreen" | "inline";
+  // "autoCompact": false turns off automatic compaction near the context limit (ADR-0020).
+  // A project's setting wins over the user's.
+  autoCompact?: boolean;
   // "model": the model to use when none is given on the command line (ADR-0014). The
   // project's wins over the user's. "roles": {"explore": model} for explore subagents.
   model: { user?: string; project?: string };
@@ -98,6 +101,8 @@ export function loadSettings(tehHome: string, projectRoot: string, home = homedi
       if (typeof n === "number" && n >= 1) out[key] = n;
       else out.problems.push({ path, message: `${key} must be a number of days (1 or more)` });
     }
+    if (typeof d.autoCompact === "boolean") out.autoCompact = d.autoCompact;
+    else if (d.autoCompact !== undefined) out.problems.push({ path, message: "autoCompact must be true or false" });
     if (d.screen !== undefined && f.scope === "user") {
       if (d.screen === "fullscreen" || d.screen === "inline") out.screen = d.screen;
       else out.problems.push({ path, message: 'screen must be "fullscreen" or "inline"' });

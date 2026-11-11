@@ -55,12 +55,13 @@ Run `teh` with no `-p` to work interactively (ADR-0005, ADR-0018). The UI takes 
 - **While it works:** Esc interrupts. Anything you type is queued and sent when it finishes.
 - **Approvals:** when `teh` needs approval it asks inline. `y` allows once, `a` allows that kind of action for the rest of the session, and `n` refuses.
 - **Modes:** Shift+Tab cycles the permission mode: ask, accept edits, plan.
-- **Commands:** `/clear` and `/exit`, plus your skills and commands. `/` shows completions.
+- **Commands:** `/clear`, `/compact` and `/exit`, plus your skills and commands. `/` shows completions.
 - **Settings panel:** `/status`, `/config`, `/usage` and `/help` open a panel over the prompt box. ←/→ or Tab switches tabs, Enter changes a setting, Esc closes it.
-  - **This session:** permission mode, the model (switch to any installed one), and full screen or inline (switched in place).
+  - **This session:** permission mode, the model (switch to any installed one), full screen or inline (switched in place), and auto-compact.
   - **This project:** its model and the mode to start in, saved to `.teh/settings.local.json`, which is kept out of git.
   - **You:** your default model and start mode, and how long screen caches, sessions and undo checkpoints are kept, saved to `~/.teh/settings.json`.
 - **Explore subagents:** for a broad search, the model can hand the job to a read-only subagent with its own context, usually on a smaller model. Only its report comes back, so the search does not fill your conversation (ADR-0019). It shows as `◆ Explore(...)` with a `Done` line. Set `"roles": {"explore": "ollama:<name>"}` to choose its model, or `"off"`.
+- **Long conversations:** when a request would fill 75% of the model's context window, `teh` has the model summarise the older part and keeps the recent turns word for word, so long tasks keep going on small local models (ADR-0020). Your requests and the files changed are kept as written, not left to the summary. `/compact [what to focus on]` does it on demand. The full conversation stays in the session log, so `teh rewind` to a point before a compaction brings it back. Set `"autoCompact": false` to turn it off.
 - **Side questions:** `/btw <question>` answers from the conversation so far without adding to it, even while `teh` is working.
 - **What you see:** replies start with `●`. Tool calls start with `◆`, and edits show a numbered diff with removed lines in red and added lines in green.
 - **Scrolling:** mouse wheel, PgUp/PgDn or Shift+Up/Down. Ctrl+Home and Ctrl+End jump to the start and the end. Hold Shift (Option in some macOS terminals) to select text with the mouse.
