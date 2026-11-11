@@ -21,6 +21,7 @@ export type SessionEventType =
   | "checkpoint_title"
   | "rewind"
   | "skill_route"
+  | "hook"
   | "error"
   | "session_end";
 
@@ -187,6 +188,9 @@ function replay(events: SessionEvent[]) {
     } else if (ev.type === "assistant_item" || ev.type === "tool_result") item = ev.data as Item;
     else if (ev.type === "skill_route" && typeof data.hint === "string")
       item = { kind: "text", role: "user", text: data.hint };
+    // Text a hook added to the conversation (ADR-0016).
+    else if (ev.type === "hook" && typeof data.text === "string")
+      item = { kind: "text", role: "user", text: data.text };
     else if (ev.type === "checkpoint" && (typeof data.sha === "string" || data.kind === "rewind")) {
       add({
         kind: data.kind === "rewind" ? "rewind" : "step",

@@ -15,7 +15,7 @@ export function posixShell(): boolean {
   return process.platform !== "win32" || Bun.which("bash") !== null;
 }
 
-function shell(command: string): string[] {
+export function shellArgv(command: string): string[] {
   if (!posixShell()) return ["cmd.exe", "/d", "/s", "/c", command];
   return ["bash", "-c", command];
 }
@@ -47,7 +47,7 @@ export const bashTool: Tool<BashArgs> = {
   },
   async run(a, ctx) {
     const level = ctx.sandboxLevel ?? "workspace-write";
-    const argv = ctx.sandbox ? ctx.sandbox.wrap(shell(a.command), level, ctx.cwd) : shell(a.command);
+    const argv = ctx.sandbox ? ctx.sandbox.wrap(shellArgv(a.command), level, ctx.cwd) : shellArgv(a.command);
     const p = Bun.spawn(argv, { cwd: ctx.cwd, stdout: "pipe", stderr: "pipe", stdin: "ignore" });
     let timedOut = false;
     const timer = setTimeout(() => {

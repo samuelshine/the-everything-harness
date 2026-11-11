@@ -5,6 +5,7 @@
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
+import { type HookConfig, mergeHooks, parseHooks } from "./hooks";
 import { parseRules, type Rule } from "./permissions";
 
 export type SettingsScope = "user" | "project";
@@ -20,6 +21,8 @@ export type LoadedSettings = {
   sandbox: { user: SandboxSettings; project: SandboxSettings };
   // "outputStyle": a style name (ADR-0015). The project's wins over the user's, as in Claude Code.
   outputStyle: { user?: string; project?: string };
+  // "hooks" (ADR-0016). Project hooks run only once the folder is trusted.
+  hooks: { user: HookConfig; project: HookConfig };
   // Files that were read, and problems with ones that could not be.
   files: { path: string; scope: SettingsScope }[];
   problems: { path: string; message: string }[];
@@ -44,6 +47,7 @@ export function loadSettings(tehHome: string, projectRoot: string, home = homedi
     project: empty(),
     sandbox: { user: {}, project: {} },
     outputStyle: {},
+    hooks: { user: {}, project: {} },
     files: [],
     problems: [],
   };
@@ -61,6 +65,9 @@ export function loadSettings(tehHome: string, projectRoot: string, home = homedi
       continue;
     }
     out.files.push({ path, scope: f.scope });
+    const hooks = parseHooks((data as { hooks?: unknown })?.hooks, path);
+    out.hooks[f.scope] = mergeHooks(out.hooks[f.scope], hooks.config);
+    for (const message of hooks.problems) out.problems.push({ path, message });
     const style = (data as { outputStyle?: unknown })?.outputStyle;
     if (typeof style === "string" && style.trim()) out.outputStyle[f.scope] = style.trim();
     else if (style !== undefined) out.problems.push({ path, message: "outputStyle must be a style name" });

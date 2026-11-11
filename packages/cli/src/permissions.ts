@@ -1,11 +1,14 @@
 // Permission rules for a run, and the trust and permissions commands (ADR-0003).
 import { isAbsolute, join, relative, resolve } from "node:path";
 import {
+  countHooks,
   detectSandbox,
   findProjectRoot,
   formatRule,
+  type HookConfig,
   isTrusted,
   loadSettings,
+  mergeHooks,
   type PermissionConfig,
   type PermissionMode,
   parseRules,
@@ -27,6 +30,8 @@ export type RunPermissions = {
   sandboxError?: string;
   // Skills with project-level allowed-tools removed when the folder is untrusted.
   skills: Skill[];
+  // User hooks, plus project hooks once the folder is trusted (ADR-0016).
+  hooks: HookConfig;
   warnings: string[];
 };
 
@@ -55,9 +60,11 @@ export function runPermissions(
 
   const ignoredAllow = trusted ? [] : settings.project.allow;
   const ignoredSkills = trusted ? [] : opts.skills.filter((s) => s.source === "project" && s.allowedTools?.length);
-  if (ignoredAllow.length || ignoredSkills.length) {
+  const ignoredHooks = trusted ? 0 : countHooks(settings.hooks.project);
+  if (ignoredAllow.length || ignoredSkills.length || ignoredHooks) {
     const what = [
       ignoredAllow.length ? `${ignoredAllow.length} allow rule(s) in project settings` : "",
+      ignoredHooks ? `${ignoredHooks} project hook(s)` : "",
       ignoredSkills.length ? `allowed-tools of project skill(s) ${ignoredSkills.map((s) => s.name).join(", ")}` : "",
     ]
       .filter(Boolean)
@@ -120,6 +127,7 @@ export function runPermissions(
     ...(sandboxError ? { sandboxError } : {}),
     config,
     skills,
+    hooks: trusted ? mergeHooks(settings.hooks.user, settings.hooks.project) : settings.hooks.user,
     warnings,
   };
 }
@@ -138,7 +146,7 @@ export function trust(io: Io, revoke: boolean, home: string): number {
   const teh = tehHome(io.env);
   if (revoke) {
     setTrusted(teh, root, false);
-    io.out(`No longer trusting ${root}. Its allow rules and skill grants are ignored again.\n`);
+    io.out(`No longer trusting ${root}. Its allow rules, hooks and skill grants are ignored again.\n`);
     return 0;
   }
   if (root === home) {
@@ -149,6 +157,8 @@ export function trust(io: Io, revoke: boolean, home: string): number {
   setTrusted(teh, root, true);
   io.out(`Trusted ${root}.\n`);
   const allow = settings.project.allow;
+  const hooks = countHooks(settings.hooks.project);
+  if (hooks) io.out(`Its ${hooks} hook command(s) now run; \`teh hooks\` lists them.\n`);
   if (allow.length) {
     io.out("These project allow rules now apply:\n");
     for (const r of allow) io.out(`  ${formatRule(r).padEnd(36)} ${rel(root, r.source ?? "")}\n`);
@@ -200,6 +210,39 @@ export function printPermissions(io: Io, skills: Skill[], home: string, sandboxM
     "\nAlways allowed: reading inside the project, and read-only commands such as ls, cat, grep, git status/log/diff.\n" +
       "Always asks (outside bypassPermissions): writes inside .git, .teh, .claude and .agents.\n",
   );
+  for (const p of settings.problems) io.err(`teh: warning: ignored ${p.path}: ${p.message}\n`);
+  return 0;
+}
+
+// `teh hooks`: every hook command, by event, and whether it runs here.
+export function printHooks(io: Io, home: string): number {
+  const root = findProjectRoot(io.cwd);
+  const teh = tehHome(io.env);
+  const settings = loadSettings(teh, root, home);
+  const trusted = isTrusted(teh, root);
+  const total = countHooks(settings.hooks.user) + countHooks(settings.hooks.project);
+  if (!total) {
+    io.out(
+      'No hooks configured. Add them under "hooks" in ~/.teh/settings.json or .teh/settings.json\n' +
+        "(Claude Code's format: events PreToolUse, PostToolUse, UserPromptSubmit, Stop, SessionStart, SessionEnd, Notification).\n",
+    );
+  }
+  for (const [scope, config] of [
+    ["user", settings.hooks.user],
+    ["project", settings.hooks.project],
+  ] as const) {
+    if (!countHooks(config)) continue;
+    const off = scope === "project" && !trusted ? " (not run until you `teh trust` this folder)" : "";
+    io.out(`${scope === "user" ? "User" : "Project"} hooks${off}:\n`);
+    for (const [event, groups] of Object.entries(config)) {
+      for (const g of groups ?? []) {
+        for (const h of g.hooks) {
+          const match = g.matcher ? `[${g.matcher}]` : "";
+          io.out(`  ${`${event}${match}`.padEnd(28)} ${h.command}  ${rel(root, h.source)}\n`);
+        }
+      }
+    }
+  }
   for (const p of settings.problems) io.err(`teh: warning: ignored ${p.path}: ${p.message}\n`);
   return 0;
 }

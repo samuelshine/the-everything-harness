@@ -15,6 +15,7 @@ import {
   findProjectRoot,
   findSession,
   findStyle,
+  HookRunner,
   type LoadedSession,
   listSessions,
   loadSettings,
@@ -39,7 +40,7 @@ import {
   tehHome,
   VERSION,
 } from "@everything-harness/core";
-import { printPermissions, runPermissions, SANDBOX_MODES, type SandboxMode, trust } from "./permissions";
+import { printHooks, printPermissions, runPermissions, SANDBOX_MODES, type SandboxMode, trust } from "./permissions";
 import { rewind } from "./rewind";
 
 export type Io = {
@@ -60,7 +61,7 @@ export type Deps = { provider?: (name: string) => Provider };
 export const USAGE = `Usage: teh -p [options] [prompt]
        teh models
        teh rewind [point] | teh undo | teh sessions | teh checkpoints | teh restore <id>
-       teh skills | teh styles | teh permissions | teh trust
+       teh skills | teh styles | teh hooks | teh permissions | teh trust
 
 Run one prompt headlessly and print the result. The prompt can also be piped on stdin.
 The interactive terminal UI is not built yet.
@@ -104,10 +105,11 @@ Commands:
       --session <id>            Rewind another session (see \`teh sessions\`)
   skills                        List skills and commands; run one with teh -p "/name args"
   styles                        List output styles (--output-style <name>)
+  hooks                         List hook commands from settings (Claude Code's "hooks" format)
   sessions                      List this project's sessions, newest first
   checkpoints                   List file snapshots taken before each run changed anything
   permissions                   Show the permission rules in effect and where each comes from
-  trust [--revoke]              Let this project's own allow rules and skill grants apply
+  trust [--revoke]              Let this project's own allow rules, hooks and skill grants apply
   undo                          Put files back as they were before the last run that changed them
   restore <id>                  Put files back to a checkpoint (undo a restore with the id it prints)
 `;
@@ -135,6 +137,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   if (positionals[0] === "sessions") return printSessions(io);
   if (positionals[0] === "skills") return printSkills(io);
   if (positionals[0] === "styles") return printStyles(io);
+  if (positionals[0] === "hooks") return printHooks(io, userHome(io));
   if (positionals[0] === "trust") return trust(io, v.revoke ?? false, userHome(io));
   const sandboxMode = (v.sandbox ?? io.env.TEH_SANDBOX) as SandboxMode | undefined;
   if (sandboxMode !== undefined && !SANDBOX_MODES.includes(sandboxMode))
@@ -265,6 +268,14 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     const denied: Denied[] = [];
     const text = textOutput(io, denied);
     const checkpoint = { taken: false };
+    const hooks = new HookRunner({
+      config: perms.hooks,
+      cwd: io.cwd,
+      projectRoot: root,
+      sessionId: session.id,
+      transcriptPath: session.path,
+      env: io.env,
+    });
     const onEvent = format === "stream-json" ? streamJson(io) : format === "text" ? text.onEvent : trackDenied(denied);
     if (format === "stream-json") {
       io.out(
@@ -291,6 +302,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
         onEvent(e);
       },
       ...(resumed ? { history: resumed.items } : {}),
+      hooks,
+      hookSessionStart: resumed ? "resume" : "startup",
       ...(slash ? { slash } : {}),
       ...(skillRoute ? { skillRoute } : {}),
       skills,
@@ -299,7 +312,11 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
         (await store.snapshot(first ? "turn" : "step", session.id, first ? prompt : title)).sha,
     });
 
-    const isError = res.stopReason === "max_turns" || res.stopReason === "error";
+    if (hooks.has("SessionEnd")) {
+      const end = await hooks.run({ hook_event_name: "SessionEnd", reason: "other" });
+      for (const m of end.messages) onEvent({ type: "hook", event: "SessionEnd", message: m });
+    }
+    const isError = ["max_turns", "error", "hook_blocked", "hook_stopped"].includes(res.stopReason);
     if (format === "text") {
       text.finish();
       if (checkpoint.taken) {
@@ -396,6 +413,8 @@ async function listModels(io: Io, makeProvider: (name: string) => Provider): Pro
 type Denied = { summary: string; suggestion?: string };
 
 function noteDenied(denied: Denied[], e: Extract<AgentEvent, { type: "approval" }>) {
+  // A hook's block is the project's policy, not something a rule or flag should open up.
+  if (e.reason.startsWith("PreToolUse hook")) return;
   denied.push({ summary: e.summary, ...(e.suggestion ? { suggestion: e.suggestion } : {}) });
 }
 
@@ -432,6 +451,8 @@ function textOutput(io: Io, denied: Denied[]) {
       io.err(`✗ denied: ${e.summary} (${e.reason})\n`);
     } else if (e.type === "warning") {
       io.err(`teh: warning: ${e.message}\n`);
+    } else if (e.type === "hook") {
+      io.err(`› ${e.event} hook: ${e.message}\n`);
     } else if (e.type === "tool_result" && e.isError && !e.content.startsWith("Permission denied")) {
       const line = e.content.split("\n").find((l) => l.trim() && l !== "[stderr]") ?? e.content;
       io.err(`  ! ${line}\n`);

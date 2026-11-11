@@ -423,6 +423,59 @@ describe("teh cli", () => {
       expect((await call(["permissions"], { cwd, home })).out).toContain("not trusted");
     });
 
+    test("project hooks run only once the folder is trusted; teh hooks lists them", async () => {
+      const cwd = temp();
+      const home = temp();
+      const hookScript = (name: string, body: string) => {
+        writeFileSync(join(home, `${name}.ts`), body);
+        return `"${process.execPath}" "${join(home, `${name}.ts`)}"`;
+      };
+      const mark = (file: string) =>
+        hookScript(file, `await Bun.stdin.text(); await Bun.write(${JSON.stringify(join(cwd, file))}, "1");`);
+      mkdirSync(join(cwd, ".teh"), { recursive: true });
+      writeFileSync(
+        join(cwd, ".teh/settings.json"),
+        JSON.stringify({
+          hooks: {
+            UserPromptSubmit: [{ hooks: [{ type: "command", command: mark("prompt.txt") }] }],
+            SessionEnd: [{ hooks: [{ type: "command", command: mark("end.txt") }] }],
+          },
+        }),
+      );
+      const listed = await call(["hooks"], { cwd, home });
+      expect(listed.out).toContain("Project hooks (not run until you `teh trust` this folder)");
+      expect(listed.out).toContain("UserPromptSubmit");
+
+      const before = await call(["-p", "--model", "fake:fake", "hi"], { cwd, home, turns: [say("ok")] });
+      expect(before.err).toContain("2 project hook(s)");
+      expect(existsSync(join(cwd, "prompt.txt"))).toBe(false);
+
+      expect((await call(["trust"], { cwd, home })).out).toContain("Its 2 hook command(s) now run");
+      const after = await call(["-p", "--model", "fake:fake", "hi"], { cwd, home, turns: [say("ok")] });
+      expect(after.code).toBe(0);
+      expect(existsSync(join(cwd, "prompt.txt"))).toBe(true);
+      expect(existsSync(join(cwd, "end.txt"))).toBe(true);
+
+      // User hooks run anywhere; a blocking UserPromptSubmit hook fails the run before the model is called.
+      writeFileSync(
+        join(home, "settings.json"),
+        JSON.stringify({
+          hooks: {
+            UserPromptSubmit: [
+              {
+                hooks: [
+                  { type: "command", command: hookScript("deny", `console.error("not today"); process.exit(2);`) },
+                ],
+              },
+            ],
+          },
+        }),
+      );
+      const blocked = await call(["-p", "--model", "fake:fake", "--output-format", "json", "hi"], { cwd, home });
+      expect(blocked.code).toBe(1);
+      expect(JSON.parse(blocked.out)).toMatchObject({ is_error: true, stop_reason: "hook_blocked" });
+    });
+
     test("--sandbox is validated, and an untrusted project can only tighten the sandbox", async () => {
       expect((await call(["--sandbox", "maybe", "-p", "x"])).err).toContain("--sandbox must be one of");
       const cwd = temp();
