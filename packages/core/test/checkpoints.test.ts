@@ -103,4 +103,31 @@ describe("CheckpointStore", () => {
   test("reports missing git", () => {
     expect(new CheckpointStore(tempDir(), tempDir(), null).unavailable()).toContain("git is not installed");
   });
+
+  test("prune drops checkpoints older than a date; kept ones still restore, by old id too", async () => {
+    const { root, store } = project({ "a.txt": "v1" });
+    const old = await store.snapshot("turn", "s", "first");
+    await Bun.sleep(1100);
+    writeFileSync(join(root, "a.txt"), "v2");
+    const kept = await store.snapshot("turn", "s", "second");
+    writeFileSync(join(root, "a.txt"), "v3");
+    const [, first] = await store.list();
+    const cutoff = new Date((first as { time: Date }).time.getTime() + 1000);
+    expect(await store.prune(cutoff)).toBe(1);
+    const left = await store.list();
+    expect(left.map((c) => c.label)).toEqual(["second"]);
+    expect(left[0]?.sha).not.toBe(kept.sha);
+    expect(await store.find(old.sha)).toBeUndefined();
+    // A session log names the old id; it still finds the rewritten checkpoint.
+    await restoreTo(store, kept.sha.slice(0, 8));
+    expect(read(root, "a.txt")).toBe("v2");
+    expect(await store.prune(cutoff)).toBe(0);
+    // A second prune that keeps it again still resolves the original id.
+    writeFileSync(join(root, "a.txt"), "v4");
+    await store.snapshot("turn", "s", "third");
+    expect((await store.find(kept.sha))?.label).toBe("second");
+    expect(await store.prune(new Date(Date.now() + 60_000))).toBe(3);
+    expect(await store.list()).toEqual([]);
+    expect(await store.find(kept.sha)).toBeUndefined();
+  });
 });

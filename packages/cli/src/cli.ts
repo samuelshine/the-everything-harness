@@ -1,6 +1,6 @@
 // Argument parsing and dispatch, kept free of process globals so it can be tested.
 
-import { existsSync } from "node:fs";
+import { existsSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
 import { parseArgs } from "node:util";
@@ -14,6 +14,7 @@ import {
   countHooks,
   createProvider,
   DEFAULT_CACHE_RETENTION_DAYS,
+  DEFAULT_CLEANUP_PERIOD_DAYS,
   DEFAULT_EMBED_MODEL,
   DEFAULT_STYLE,
   expandSkill,
@@ -36,6 +37,7 @@ import {
   parseModelRef,
   parseSlash,
   pruneCaches,
+  pruneSessions,
   type RestorePlan,
   ROUTER_MODES,
   type RouteResult,
@@ -133,6 +135,7 @@ Commands:
   hooks                         List hook commands from settings (Claude Code's "hooks" format)
   mcp                           Start the configured MCP servers and list their tools
   sessions                      List this project's sessions, newest first
+  sessions rm <id>              Delete a session and its cached view (its checkpoints stay)
   checkpoints                   List file snapshots taken before each run changed anything
   permissions                   Show the permission rules in effect and where each comes from
   trust [--revoke]              Let this project's own allow rules, hooks, skill grants and .mcp.json apply
@@ -160,6 +163,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   }
   if (positionals[0] === "models") return listModels(io, makeProvider);
   if (positionals[0] === "checkpoints") return listCheckpoints(io);
+  if (positionals[0] === "sessions" && positionals[1] === "rm") return removeSession(io, positionals[2]);
   if (positionals[0] === "sessions") return printSessions(io);
   if (positionals[0] === "skills") return printSkills(io);
   if (positionals[0] === "styles") return printStyles(io);
@@ -218,9 +222,18 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   // was started in. Settings, skills and checkpoints still come from the repository root.
   const dir = resolve(io.cwd);
   const home = tehHome(io.env);
-  // Session caches past their retention go first (ADR-0018). Conversations are kept.
-  const cacheDays = loadSettings(home, root, userHome(io)).cacheRetentionDays ?? DEFAULT_CACHE_RETENTION_DAYS;
+  const startSettings = loadSettings(home, root, userHome(io));
+  // Cleanup (ADR-0004, ADR-0018): UI caches after a few idle days, whole sessions after
+  // cleanupPeriodDays, and checkpoints only when checkpointRetentionDays is set.
+  const cacheDays = startSettings.cacheRetentionDays ?? DEFAULT_CACHE_RETENTION_DAYS;
   pruneCaches(home, cacheDays);
+  pruneSessions(home, startSettings.cleanupPeriodDays ?? DEFAULT_CLEANUP_PERIOD_DAYS);
+  if (startSettings.checkpointRetentionDays) {
+    const days = startSettings.checkpointRetentionDays;
+    await pruneCheckpointsDaily(new CheckpointStore(home, root), days).catch((e) =>
+      io.err(`teh: warning: could not prune old checkpoints: ${(e as Error).message}\n`),
+    );
+  }
   // Starting the UI in a folder for the first time asks whether to trust it (ADR-0018).
   const term = interactive && io.terminal ? io.terminal() : undefined;
   if (term && !isTrusted(home, root) && root !== userHome(io)) {
@@ -702,6 +715,18 @@ async function restore(io: Io, ref: string | undefined, yes: boolean): Promise<n
   }
 }
 
+function removeSession(io: Io, ref: string | undefined): number {
+  if (!ref) return usageError(io, "usage: teh sessions rm <id>");
+  const home = tehHome(io.env);
+  const dir = resolve(io.cwd);
+  const found = findSession(home, dir, ref);
+  if (!found) return usageError(io, `no single session matches ${ref}; \`teh sessions\` lists them`);
+  rmSync(found.path, { force: true });
+  rmSync(new TranscriptCache(home, dir).path(found.id), { force: true });
+  io.out(`Deleted session ${found.id.slice(0, 18)} (${found.prompts} prompt${found.prompts === 1 ? "" : "s"}).\n`);
+  return 0;
+}
+
 function printSessions(io: Io): number {
   const root = resolve(io.cwd);
   const all = listSessions(tehHome(io.env), root);
@@ -717,6 +742,17 @@ function printSessions(io: Io): number {
     io.out(`  ${s.id.slice(0, 18)}  ${when(s.updated)}  ${n.padEnd(10)}  ${(s.model ?? "").padEnd(22)}  ${label}\n`);
   }
   return 0;
+}
+
+// Checkpoint pruning rewrites history and runs git gc, so it runs at most once a day.
+async function pruneCheckpointsDaily(store: CheckpointStore, days: number): Promise<number> {
+  const stamp = join(store.gitDir, "teh-pruned-at");
+  const DAY = 24 * 60 * 60 * 1000;
+  if (!existsSync(store.gitDir)) return 0;
+  if (existsSync(stamp) && Date.now() - statSync(stamp).mtimeMs < DAY) return 0;
+  const n = await store.prune(new Date(Date.now() - days * DAY));
+  writeFileSync(stamp, `${new Date().toISOString()}\n`);
+  return n;
 }
 
 // The home directory skills are read from, overridable for tests through HOME.
