@@ -71,6 +71,14 @@ Option 3. The engine has a **model policy** component between the agent loop and
 }
 ```
 
+**Amendment, 2026-11-11: no model pinned.** Starting teh without `--model`, `TEH_MODEL` or a resumed session used to be an error. It now runs triage for that one decision:
+- The rules sort the first prompt into S, M or L (length, files named, keywords, plan mode). This makes no model call, so it costs no tokens.
+- Among installed models that support tool calling, S takes the smallest, M the middle one and L the largest. Models under about 2 GB are used only when nothing larger is installed.
+- The choice is made at session start and holds for the session (boundaries only), so the prompt cache is never thrown away mid-conversation. `/clear` starts a new session and chooses again.
+- The chosen model and the reason are shown. A pinned model always wins and skips all of this.
+
+This does not turn triage on for people who pin a model, so the eval gate below still stands for that.
+
 ## Consequences
 - **Phase 0 (evals) becomes a real dependency** for shipping routing as a default. The policy itself can be built and used opt-in earlier.
 - **Telemetry (ADR-0011) gains fields:** role or tier, escalation offered, accepted or declined, auth route, and local or cloud. No prompt-derived features are sent, so triage reasons are reported only as rule ids.

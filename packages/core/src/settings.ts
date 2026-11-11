@@ -138,3 +138,23 @@ export function setTrusted(tehHome: string, projectRoot: string, trusted: boolea
   mkdirSync(tehHome, { recursive: true, mode: 0o700 });
   writeFileSync(trustFile(tehHome), `${JSON.stringify({ projects: list.sort() }, null, 2)}\n`, { mode: 0o600 });
 }
+
+// Set one key in the person's own settings file, keeping everything else in it. Returns
+// false, changing nothing, when the file exists but is not a JSON object.
+export function setUserSetting(tehHome: string, key: string, value: unknown): boolean {
+  const path = join(tehHome, "settings.json");
+  let data: Record<string, unknown> = {};
+  if (existsSync(path)) {
+    try {
+      const parsed = JSON.parse(readFileSync(path, "utf8"));
+      if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return false;
+      data = parsed as Record<string, unknown>;
+    } catch {
+      return false;
+    }
+  }
+  data[key] = value;
+  mkdirSync(tehHome, { recursive: true, mode: 0o700 });
+  writeFileSync(path, `${JSON.stringify(data, null, 2)}\n`, { mode: 0o600 });
+  return true;
+}

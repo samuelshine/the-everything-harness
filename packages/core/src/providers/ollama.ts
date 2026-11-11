@@ -41,12 +41,13 @@ export class OllamaProvider implements Provider {
   async listModels(): Promise<ModelInfo[]> {
     const res = await this.fetch("/api/tags", { method: "GET" });
     const body = (await res.json()) as {
-      models?: { name: string; capabilities?: string[]; details?: { context_length?: number } }[];
+      models?: { name: string; size?: number; capabilities?: string[]; details?: { context_length?: number } }[];
     };
     return (body.models ?? []).map((m) => ({
       id: m.name,
       ...(m.capabilities ? { supportsTools: m.capabilities.includes("tools") } : {}),
       ...(m.details?.context_length ? { contextWindow: m.details.context_length } : {}),
+      ...(m.size ? { sizeBytes: m.size } : {}),
     }));
   }
 

@@ -122,7 +122,7 @@ describe("TuiApp full screen, with the session cache", () => {
     expect(vt.text()).not.toContain("reply line 1\n");
     vt.type("\x1b[5~\x1b[5~\x1b[5~");
     await settle();
-    expect(vt.text()).toContain("● Create a.txt (2 lines)");
+    expect(vt.text()).toContain("◆ Create(a.txt)");
     expect(vt.text()).toContain("more lines below");
     vt.type("\x1b[1;5F");
     await settle();
@@ -134,7 +134,7 @@ describe("TuiApp full screen, with the session cache", () => {
 
     // Resume: the cached transcript comes back as it was shown, diff and all.
     const cached = cache.load(session.id) ?? [];
-    expect(cached.join("\n")).toContain("⎿ created a.txt (2 lines)");
+    expect(cached.join("\n")).toContain("⎿  Wrote 2 lines to a.txt\n     1 + one\n     2 + two");
     const resumedSession = new SessionLog(
       home,
       cwd,
@@ -159,7 +159,7 @@ describe("TuiApp full screen, with the session cache", () => {
     vt.type("\x1b[1;5H");
     await settle();
     expect(vt.text()).toContain("(rebuilt from the conversation; the detailed view");
-    expect(vt.text()).toContain("● Write a.txt");
+    expect(vt.text()).toContain("◆ Write(a.txt)");
     expect(vt.text()).toContain("› make a file");
     vt.type("\x04");
     await done3;

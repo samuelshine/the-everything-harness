@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdtempSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
@@ -91,8 +91,10 @@ describe("TuiApp", () => {
     });
     void cwd;
     await type("make a file\r");
-    expect(vt.text()).toContain("● Create a.txt");
-    expect(vt.text()).toContain("⎿ created a.txt (3 lines)");
+    // A tool call does not look like chat: its own glyph, Verb(target), and a numbered diff.
+    expect(vt.text()).toContain(
+      "◆ Create(a.txt)\n  ⎿  Wrote 2 lines to a.txt\n     1 + one\n     2 + two\n\n● created",
+    );
     await type("and now?\r");
     expect(vt.text()).toContain("I remember 5 items");
   });
@@ -201,7 +203,9 @@ describe("TuiApp", () => {
     await type("/he");
     expect(vt.text()).toContain("/help            Show keys and commands");
     await type("\t\r");
-    expect(vt.text()).toContain("Shift+Tab cycle permission mode");
+    expect(vt.text()).toContain("Shift+Tab permission mode");
+    await type("\x1b");
+    await settle();
     await type("/nope\r");
     expect(vt.text()).toContain("no command named /nope");
     await type("\x1b[Z");
@@ -215,6 +219,106 @@ describe("TuiApp", () => {
     await type("again\r");
     expect(provider.requests[1]?.items).toHaveLength(1);
     expect(readFileSync(session.path, "utf8")).toContain("hello");
+  });
+
+  test("the settings panel opens over the prompt box, switches tabs, changes settings, and leaves nothing behind", async () => {
+    const saved: number[] = [];
+    const provider = new FakeProvider([
+      [
+        { type: "text_delta", text: "hi" },
+        { type: "usage", usage: { input: 2000, cachedRead: 500, cacheWrite: 0, output: 40 } },
+        { type: "stop", reason: "end" },
+      ],
+    ]);
+    const { vt, type } = setup(provider, {
+      cacheDays: 3,
+      onCacheDays: (d) => saved.push(d),
+      contextWindow: 8000,
+      statusInfo: [["Trust", "trusted"]],
+    });
+    await type("hello\r");
+    await type("/usage\r");
+    expect(vt.text()).toContain("Settings   Status   Config   Usage   Help");
+    expect(vt.text()).toContain("Context   2.5k of 8.0k tokens (32%)");
+    expect(vt.text()).toContain("Tokens    2.0k in (500 from cache) · 40 out");
+    expect(vt.text()).not.toContain("Ask teh anything");
+    // Left to Config: change the cache retention and the permission mode.
+    await type("\x1b[D");
+    expect(vt.text()).toContain("❯ Permission mode     default");
+    await type("\r");
+    expect(vt.text()).toContain("❯ Permission mode     acceptEdits");
+    await type("\x1b[B\r");
+    expect(vt.text()).toContain("❯ Session cache kept  7 days");
+    expect(saved).toEqual([7]);
+    // Left again to Status; Tab goes forward.
+    await type("\x1b[D");
+    expect(vt.text()).toContain("Trust            trusted");
+    await type("\t\t\t");
+    expect(vt.text()).toContain("/btw        Ask a side question");
+    // Esc closes it: the prompt box is back and the conversation has no trace of the panel.
+    await type("\x1b");
+    await settle();
+    expect(vt.text()).toContain("⏵⏵ accept edits on");
+    expect(vt.text()).not.toContain("Settings");
+    expect(vt.text()).toContain("● hi\n─");
+  });
+
+  test("with no pinned model, the first prompt of each session picks one and it holds until /clear", async () => {
+    const provider = new FakeProvider([say("a"), say("b"), say("c")]);
+    const asked: string[] = [];
+    const { vt, type } = setup(provider, {
+      pickModel: async (prompt) => {
+        asked.push(prompt);
+        const model = prompt.includes("refactor") ? "big" : "small";
+        return { provider, model, label: `ollama:${model}`, reason: "S: short question" };
+      },
+    });
+    await type("what is this?\r");
+    expect(vt.text()).toContain("model: ollama:small · chosen for this task (S: short question)");
+    await type("refactor everything\r");
+    // Same session: the model does not change mid-conversation, so the cache survives.
+    expect(provider.requests.map((r) => r.model)).toEqual(["small", "small"]);
+    await type("/clear\r");
+    await type("refactor everything\r");
+    expect(provider.requests[2]?.model).toBe("big");
+    expect(asked).toEqual(["what is this?", "refactor everything"]);
+  });
+
+  test("/btw answers a side question without adding it to the conversation", async () => {
+    const provider = new FakeProvider([say("main answer"), say("it is **blue**"), say("second answer")]);
+    const { vt, type } = setup(provider);
+    await type("first\r");
+    await type("/btw what colour is the sky?\r");
+    expect(vt.text()).toContain(
+      "╭ btw what colour is the sky?\n  │ it is blue\n  ╰ side answer · not added to the conversation",
+    );
+    // The side request saw the conversation, had no tools, and left the history alone.
+    expect(provider.requests[1]?.tools).toEqual([]);
+    expect(provider.requests[1]?.items.map((i) => (i.kind === "text" ? i.text : i.kind))).toEqual([
+      "first",
+      "main answer",
+      "what colour is the sky?",
+    ]);
+    await type("second\r");
+    expect(provider.requests[2]?.items.map((i) => (i.kind === "text" ? i.text : i.kind))).toEqual([
+      "first",
+      "main answer",
+      "second",
+    ]);
+  });
+
+  test("an edit shows a diff with line numbers, removed and added lines apart", async () => {
+    const provider = new FakeProvider([
+      callTool("Read", { file_path: "a.txt" }),
+      callTool("Edit", { file_path: "a.txt", old_string: "two", new_string: "2\nII" }),
+      say("done"),
+    ]);
+    const { vt, type, cwd } = setup(provider);
+    writeFileSync(join(cwd, "a.txt"), "one\ntwo\nthree\n");
+    await type("\x1b[Zedit it\r");
+    expect(vt.text()).toContain(
+      "◆ Read(a.txt)\n  ⎿  Read 4 lines\n\n◆ Edit(a.txt)\n  ⎿  Updated a.txt with 2 additions and 1 removal\n     1   one\n     2 - two\n     2 + 2\n     3 + II\n     4   three",
+    );
   });
 
   test("Ctrl+C clears the prompt, and twice in a row quits", async () => {
