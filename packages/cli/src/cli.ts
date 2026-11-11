@@ -10,6 +10,7 @@ import {
   type Checkpoint,
   CheckpointError,
   CheckpointStore,
+  capableModels,
   chooseModel,
   countHooks,
   createProvider,
@@ -46,6 +47,7 @@ import {
   SessionLog,
   type Skill,
   SkillRouter,
+  setProjectSetting,
   setTrusted,
   setUserSetting,
   similarNames,
@@ -208,8 +210,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   const format = (v["output-format"] ?? "text") as OutputFormat;
   if (!OUTPUT_FORMATS.includes(format))
     return usageError(io, `--output-format must be one of ${OUTPUT_FORMATS.join(", ")}`);
-  const mode = (v["permission-mode"] ?? "default") as PermissionMode;
-  if (!PERMISSION_MODES.includes(mode))
+  const flagMode = v["permission-mode"] as PermissionMode | undefined;
+  if (flagMode !== undefined && !PERMISSION_MODES.includes(flagMode))
     return usageError(io, `--permission-mode must be one of ${PERMISSION_MODES.join(", ")}`);
   const maxTurns = v["max-turns"] === undefined ? 50 : Number(v["max-turns"]);
   if (!Number.isInteger(maxTurns) || maxTurns < 1) return usageError(io, "--max-turns must be a positive integer");
@@ -248,6 +250,18 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     if (answer === "quit") return 0;
     if (answer === "trust") setTrusted(home, root, true);
   }
+  // The mode to start in: the flag, else permissions.defaultMode (ADR-0003). A project may
+  // choose plan or default; acceptEdits only once the folder is trusted; bypass never.
+  const trustedNow = isTrusted(home, root);
+  const projectMode = startSettings.defaultMode.project;
+  const projectModeOk =
+    projectMode === "default" || projectMode === "plan" || (projectMode === "acceptEdits" && trustedNow);
+  if (projectMode && !projectModeOk)
+    io.err(
+      `teh: warning: ignoring this project's permissions.defaultMode "${projectMode}" (${trustedNow ? "a project cannot bypass permissions" : "the folder is not trusted"})\n`,
+    );
+  const mode: PermissionMode =
+    flagMode ?? (projectModeOk ? projectMode : undefined) ?? startSettings.defaultMode.user ?? "default";
   const loaded = loadSkills(home, root, userHome(io));
   for (const p of loaded.problems) io.err(`teh: warning: skipped ${p.path}: ${p.message}\n`);
   const perms = runPermissions(io, {
@@ -299,7 +313,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
 
   // No pinned model: teh picks one for the task from the local models (ADR-0014). The
   // rules cost no tokens, and the choice holds for the session so its cache is kept.
-  let modelSpec = v.model ?? resumed?.model ?? io.env.TEH_MODEL;
+  let modelSpec =
+    v.model ?? resumed?.model ?? io.env.TEH_MODEL ?? startSettings.model.project ?? startSettings.model.user;
   let installed: ModelInfo[] | undefined;
   let autoReason: string | undefined;
   if (!modelSpec) {
@@ -378,11 +393,34 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       const app: TuiApp = new TuiApp({
         terminal: term,
         color: !io.env.NO_COLOR && io.env.TERM !== "dumb",
-        fullscreen: !v.inline && io.env.TERM !== "dumb",
+        fullscreen: !v.inline && io.env.TERM !== "dumb" && startSettings.screen !== "inline",
         transcript: new TranscriptCache(home, dir),
         cacheDays,
-        onCacheDays: (days) => {
-          setUserSetting(home, "cacheRetentionDays", days);
+        saveSetting: (scope, key, value) => {
+          const ok = scope === "user" ? setUserSetting(home, key, value) : setProjectSetting(root, key, value);
+          if (!ok) io.err(`teh: warning: could not save ${key}: the settings file is not a JSON object\n`);
+        },
+        settings: {
+          model: startSettings.model,
+          defaultMode: startSettings.defaultMode,
+          ...(startSettings.cleanupPeriodDays ? { cleanupPeriodDays: startSettings.cleanupPeriodDays } : {}),
+          ...(startSettings.checkpointRetentionDays
+            ? { checkpointRetentionDays: startSettings.checkpointRetentionDays }
+            : {}),
+        },
+        models: await localModels(makeProvider, installed),
+        useModel: async (label: string) => {
+          const r = parseModelRef(label);
+          const p = makeProvider(r.provider);
+          const info = await p.probe(r.model);
+          if (!info.supportsTools) throw new Error(`${label} does not support tool calling`);
+          return {
+            provider: p,
+            model: r.model,
+            label,
+            ...(info.contextWindow ? { contextWindow: info.contextWindow } : {}),
+            reason: "",
+          };
         },
         ...(probe.contextWindow ? { contextWindow: probe.contextWindow } : {}),
         statusInfo: [
@@ -742,6 +780,16 @@ function printSessions(io: Io): number {
     io.out(`  ${s.id.slice(0, 18)}  ${when(s.updated)}  ${n.padEnd(10)}  ${(s.model ?? "").padEnd(22)}  ${label}\n`);
   }
   return 0;
+}
+
+// Installed models able to run the agent, as provider:model labels; empty when Ollama is down.
+async function localModels(makeProvider: (name: string) => Provider, known?: ModelInfo[]): Promise<string[]> {
+  try {
+    const list = known ?? (await makeProvider("ollama").listModels());
+    return capableModels(list).map((m) => `ollama:${m.id}`);
+  } catch {
+    return [];
+  }
 }
 
 // Checkpoint pruning rewrites history and runs git gc, so it runs at most once a day.

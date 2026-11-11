@@ -230,6 +230,49 @@ describe("teh cli", () => {
     expect(none.err).toContain("teh models");
   });
 
+  test("settings choose the model and the start mode; a project may not loosen the mode until trusted", async () => {
+    const cwd = temp();
+    const home = temp();
+    writeFileSync(
+      join(home, "settings.json"),
+      JSON.stringify({ model: "fake:fake", permissions: { defaultMode: "plan" } }),
+    );
+    // No --model: the user's setting is used. plan mode from settings denies the write.
+    const plan = await call(["-p", "make it"], {
+      cwd,
+      home,
+      turns: [callTool("Write", { file_path: "a.txt", content: "x" }), say("ok")],
+    });
+    expect(plan.code).toBe(0);
+    expect(existsSync(join(cwd, "a.txt"))).toBe(false);
+    // A project asking for acceptEdits is ignored while the folder is untrusted…
+    mkdirSync(join(cwd, ".teh"));
+    writeFileSync(join(cwd, ".teh", "settings.json"), JSON.stringify({ permissions: { defaultMode: "acceptEdits" } }));
+    const untrusted = await call(["-p", "make it"], {
+      cwd,
+      home,
+      turns: [callTool("Write", { file_path: "a.txt", content: "x" }), say("ok")],
+    });
+    expect(untrusted.err).toContain(
+      'ignoring this project\'s permissions.defaultMode "acceptEdits" (the folder is not trusted)',
+    );
+    expect(existsSync(join(cwd, "a.txt"))).toBe(false);
+    // …and applies once it is trusted. The flag still wins over both.
+    await call(["trust"], { cwd, home });
+    await call(["-p", "make it"], {
+      cwd,
+      home,
+      turns: [callTool("Write", { file_path: "a.txt", content: "x" }), say("ok")],
+    });
+    expect(readFileSync(join(cwd, "a.txt"), "utf8")).toBe("x");
+    await call(["-p", "--permission-mode", "plan", "make it"], {
+      cwd,
+      home,
+      turns: [callTool("Write", { file_path: "b.txt", content: "x" }), say("ok")],
+    });
+    expect(existsSync(join(cwd, "b.txt"))).toBe(false);
+  });
+
   test("teh sessions rm deletes one session; sessions idle past cleanupPeriodDays go at startup", async () => {
     const cwd = temp();
     const home = temp();
