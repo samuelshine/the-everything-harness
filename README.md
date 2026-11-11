@@ -3,7 +3,7 @@
 A model-agnostic, **terminal-first** agent harness. You should be able to use it the way you use Claude Code: start it in a repo, talk to it, and let it read, edit and run things under rules you control. It handles context, tools, memory, skills, plugins/MCP, delegation, verification and safety, and works across LLM providers.
 
 ## Status
-**Early development.** Headless mode (`teh -p`) works with local models through [Ollama](https://ollama.com): it reads, searches, edits and runs commands under permission rules, and logs each session. `teh undo` reverts a run's file changes. Hooks run in Claude Code's format, and it connects to MCP servers over stdio and HTTP. There is no interactive UI and no cloud providers yet. Background reading:
+**Early development.** `teh` works with local models through [Ollama](https://ollama.com): it reads, searches, edits and runs commands under permission rules, and logs each session. `teh undo` reverts a run's file changes. Running `teh` on its own opens an interactive terminal UI. Hooks run in Claude Code's format, and it connects to MCP servers over stdio and HTTP. There are no cloud providers yet. Background reading:
 - [Product brief](docs/product.md): name, audience, and the product decisions so far.
 - [Synthesis](docs/research/00-synthesis.md): principles, reference architecture, build order, open decisions.
 - [Terminal harness requirements](docs/research/10-terminal-harness.md): what "usable like Claude Code" means, feature by feature.
@@ -19,6 +19,7 @@ docs/
   adr/             architecture decision records (decisions taken from the research)
 packages/
   core/            engine: loop, sessions, tools, permissions, context, providers
+  tui/             interactive terminal UI: inline renderer, prompt editor, approvals
   cli/             `teh` entrypoint, headless mode, flags
 evals/             measurements behind design choices (e.g. skill-routing)
 spikes/            throwaway experiments that validate an ADR
@@ -27,7 +28,6 @@ CONTRIBUTING.md    branching, commits, PRs, development setup
 Planned:
 ```
 packages/
-  tui/             terminal client
   sandbox/         OS sandbox adapters
 ```
 
@@ -47,6 +47,14 @@ bun run build
 packages/cli/dist/teh models  # list local models and whether they support tools
 packages/cli/dist/teh -p --model ollama:gemma4:e4b "What does this repo do?"
 ```
+Run `teh --model ollama:gemma4:e4b` with no `-p` to work interactively (ADR-0005):
+- **Sending:** type a prompt and press Enter. Shift+Enter, Alt+Enter, or `\` then Enter adds a new line. Pasting a block keeps it as one prompt.
+- **While it works:** Esc interrupts. Anything you type is queued and sent when it finishes.
+- **Approvals:** when `teh` needs approval it asks inline. `y` allows once, `a` allows that kind of action for the rest of the session, and `n` refuses.
+- **Modes:** Shift+Tab cycles the permission mode: ask, accept edits, plan.
+- **Commands:** `/help`, `/clear`, `/cost` and `/exit`, plus your skills and commands. `/` shows completions.
+- **Leaving:** Ctrl+D quits. `teh -c` picks the conversation up again.
+
 `teh` asks before every change by default (ADR-0008). Reading the project and read-only commands such as `ls`, `cat`, `grep`, `sed -n 1,20p` and `git status/log/diff` run without asking. Headless mode cannot ask, so it denies everything else and prints the rule that would allow it:
 - `--permission-mode acceptEdits` allows file edits inside the workspace.
 - `--allowedTools 'Bash(npm test:*)'` allows `npm test` with any arguments. `'Bash(npm test)'` allows only that exact command.

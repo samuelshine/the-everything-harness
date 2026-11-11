@@ -15,7 +15,7 @@ These decisions are open, with the research's current lean. Sources are in [synt
 | [0002](0002-provider-layer.md) (Accepted) | Provider layer | Own thin adapters over official SDKs with an item-based model: `anthropic`, `openai` (API key + ChatGPT plan), `openai-compatible`, native `ollama`, `fake` for tests; capability registry from models.dev + probes; cost per auth route |
 | [0003](0003-permission-and-sandbox-model.md) (Proposed) | Permission and sandbox model | Approval rules (Claude Code syntax) matched per parsed simple command; conservative read-only classifier; protected paths; workspace trust for project allow rules; OS sandbox (Seatbelt/bubblewrap) underneath in a follow-up |
 | [0004](0004-sessions-and-checkpoints.md) (Accepted) | Session storage and checkpoints | Append-only JSONL event tree per session in `~/.teh/projects/`; shadow-git worktree snapshot per turn (covers bash); rewind asks first; 30-day retention |
-| 0005 | TUI rendering | Inline differential renderer by default; alternate screen opt-in |
+| [0005](0005-tui-rendering.md) (Proposed) | TUI rendering | Own inline differential renderer, no dependencies: finished output goes to native scrollback once, only a small live area redraws; inline approvals, Esc interrupt, queued messages, Shift+Tab modes |
 | 0006 | Memory backend | Files and grep first; pluggable store behind a memory tool |
 | 0007 | Multi-agent default | Single writer; parallel subagents for read-heavy work only |
 | [0008](0008-default-approval-posture.md) (Accepted) | Default approval posture | Decided: ask before every action that changes something; sandbox stays on underneath. Research had leaned towards Codex-style workspace-write |

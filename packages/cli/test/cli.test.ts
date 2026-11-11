@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, realpath
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callTool, FakeProvider, type FakeTurn, type Provider, say, VERSION } from "@everything-harness/core";
+import { VirtualTerminal } from "../../tui/test/vt";
 import { type Deps, run, USAGE } from "../src/cli";
 
 const temp = () => realpathSync(mkdtempSync(join(tmpdir(), "teh-cli-")));
@@ -55,10 +56,41 @@ describe("teh cli", () => {
     expect(r.err).toContain("--nope");
   });
 
-  test("a prompt without -p explains the UI is not built yet", async () => {
+  test("a prompt without -p and without a terminal explains how to run headlessly", async () => {
     const r = await call(["hello"]);
     expect(r.code).toBe(2);
-    expect(r.err).toContain("use -p");
+    expect(r.err).toContain("the interactive UI needs a terminal; use -p");
+  });
+
+  test("with a terminal, teh opens the interactive UI with MCP tools, sends the first prompt, and quits on Ctrl+D", async () => {
+    const cwd = temp();
+    const home = temp();
+    const vt = new VirtualTerminal(80, 30);
+    const fake = new FakeProvider([say("hi from the UI")]);
+    const server = join(import.meta.dir, "../../core/test/fixtures/mcp-server.ts");
+    const mcpConfig = JSON.stringify({ mcpServers: { local: { command: process.execPath, args: [server] } } });
+    const running = run(
+      ["--model", "fake:fake", "--mcp-config", mcpConfig, "say", "hi"],
+      {
+        out: () => {},
+        err: () => {},
+        env: { TEH_HOME: home, HOME: home, NO_COLOR: "1" },
+        cwd,
+        stdin: async () => undefined,
+        terminal: () => vt,
+      },
+      { provider: () => fake as Provider },
+    );
+    for (let i = 0; i < 50 && !vt.text().includes("hi from the UI"); i++) await Bun.sleep(20);
+    expect(vt.text()).toContain("› say hi");
+    expect(vt.text()).toContain("● hi from the UI");
+    // MCP tools reach the model in the UI too.
+    expect(fake.requests[0]?.tools.map((t) => t.name)).toContain("mcp__local__echo");
+    vt.type("\x04");
+    expect(await running).toBe(0);
+    // The conversation was saved as a session that -c can continue.
+    const sessions = await call(["sessions"], { cwd, home });
+    expect(sessions.out).toContain("say hi");
   });
 
   test("-p without a model explains how to pick one", async () => {
@@ -91,7 +123,7 @@ describe("teh cli", () => {
       is_error: false,
       result: "I need permission to write a.txt",
       num_turns: 2,
-      denied_actions: ["Create a.txt (1 lines)"],
+      denied_actions: ["Create a.txt (1 line)"],
     });
   });
 
@@ -282,11 +314,11 @@ describe("teh cli", () => {
         'Prompt 1: "make files"',
         "1  ",
         "Start of prompt 1",
-        "Before: Create a.txt (1 lines)",
-        "Before: Create b.txt (1 lines)",
+        "Before: Create a.txt (1 line)",
+        "Before: Create b.txt (1 line)",
         'Prompt 2: "update a"',
         "Start of prompt 2",
-        "Before: Overwrite a.txt (1 lines)",
+        "Before: Overwrite a.txt (1 line)",
         "Current state",
         "teh rewind <point>",
       ])
@@ -303,7 +335,7 @@ describe("teh cli", () => {
       expect(file(cwd, "b.txt")).toBeNull();
 
       const list = (await call(["rewind"], { cwd, home })).out;
-      expect(list).toContain("Before: Create b.txt (1 lines)\n");
+      expect(list).toContain("Before: Create b.txt (1 line)\n");
       expect(list).toContain("Start of prompt 2  (rewound)");
       expect(list).toContain("6  ");
       expect(list).toContain("Before rewinding to point 3");
