@@ -49,23 +49,23 @@ export type TierScore = { pass: number; runs: number; seconds: number };
 // Keyed by "provider:model", then by tier.
 export type ModelScores = Record<string, Partial<Record<Tier, TierScore>>>;
 
-// Measured with evals/model-routing on 2026-11-11 (MacBook, 24 GiB, Ollama; 3 runs of each
+// Measured with evals/model-routing on 2026-11-11, second run after the --allowedTools fix (MacBook, 24 GiB, Ollama; 3 runs of each
 // task: 3 tasks for S and M, 2 for L). Your own runs, saved with --save-scores to ~/.teh/model-scores.json, replace these.
 export const MEASURED_SCORES: ModelScores = {
   "ollama:gemma4:e4b": {
-    S: { pass: 1, runs: 9, seconds: 16 },
-    M: { pass: 0.89, runs: 9, seconds: 30.6 },
-    L: { pass: 1, runs: 6, seconds: 27.9 },
+    S: { pass: 1, runs: 9, seconds: 12.4 },
+    M: { pass: 1, runs: 9, seconds: 27.9 },
+    L: { pass: 1, runs: 6, seconds: 30.1 },
   },
   "ollama:qwen2.5:14b": {
-    S: { pass: 0.78, runs: 9, seconds: 61.3 },
-    M: { pass: 0.67, runs: 9, seconds: 86.2 },
-    L: { pass: 0.83, runs: 6, seconds: 50.8 },
+    S: { pass: 0.89, runs: 9, seconds: 29.4 },
+    M: { pass: 0.89, runs: 9, seconds: 49.1 },
+    L: { pass: 0.83, runs: 6, seconds: 36.6 },
   },
   "ollama:mistral-nemo:12b": {
-    S: { pass: 0.22, runs: 9, seconds: 5.6 },
-    M: { pass: 0, runs: 9, seconds: 20.3 },
-    L: { pass: 0, runs: 6, seconds: 12.4 },
+    S: { pass: 0.33, runs: 9, seconds: 17.7 },
+    M: { pass: 0, runs: 9, seconds: 22.1 },
+    L: { pass: 0, runs: 6, seconds: 11.4 },
   },
 };
 

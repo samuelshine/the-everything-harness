@@ -1,0 +1,972 @@
+{
+  "models": ["ollama:gemma4:e4b", "ollama:qwen2.5:14b", "ollama:mistral-nemo:12b"],
+  "runs": 3,
+  "scores": {
+    "ollama:gemma4:e4b": {
+      "S": {
+        "pass": 1,
+        "runs": 9,
+        "seconds": 12.4
+      },
+      "M": {
+        "pass": 1,
+        "runs": 9,
+        "seconds": 27.9
+      },
+      "L": {
+        "pass": 1,
+        "runs": 6,
+        "seconds": 30.1
+      }
+    },
+    "ollama:qwen2.5:14b": {
+      "S": {
+        "pass": 0.8888888888888888,
+        "runs": 9,
+        "seconds": 29.4
+      },
+      "M": {
+        "pass": 0.8888888888888888,
+        "runs": 9,
+        "seconds": 49.1
+      },
+      "L": {
+        "pass": 0.8333333333333334,
+        "runs": 6,
+        "seconds": 36.6
+      }
+    },
+    "ollama:mistral-nemo:12b": {
+      "S": {
+        "pass": 0.3333333333333333,
+        "runs": 9,
+        "seconds": 17.7
+      },
+      "M": {
+        "pass": 0,
+        "runs": 9,
+        "seconds": 22.1
+      },
+      "L": {
+        "pass": 0,
+        "runs": 6,
+        "seconds": 11.4
+      }
+    }
+  },
+  "summary": [
+    {
+      "config": "ollama:gemma4:e4b",
+      "runs": 24,
+      "passRate": "100%",
+      "meanSeconds": 23,
+      "meanTokens": 10686,
+      "passesPerHour": 159.1,
+      "passesPer100kTokens": 9.4
+    },
+    {
+      "config": "ollama:qwen2.5:14b",
+      "runs": 24,
+      "passRate": "88%",
+      "meanSeconds": 39,
+      "meanTokens": 8962,
+      "passesPerHour": 81.6,
+      "passesPer100kTokens": 9.8
+    },
+    {
+      "config": "ollama:mistral-nemo:12b",
+      "runs": 24,
+      "passRate": "13%",
+      "meanSeconds": 18,
+      "meanTokens": 4649,
+      "passesPerHour": 25.3,
+      "passesPer100kTokens": 2.7
+    },
+    {
+      "config": "auto by size",
+      "runs": 24,
+      "passRate": "71%",
+      "meanSeconds": 33,
+      "meanTokens": 8095,
+      "passesPerHour": 78.3,
+      "passesPer100kTokens": 8.8
+    },
+    {
+      "config": "auto by measured score",
+      "runs": 24,
+      "passRate": "100%",
+      "meanSeconds": 23,
+      "meanTokens": 10686,
+      "passesPerHour": 159.1,
+      "passesPer100kTokens": 9.4
+    }
+  ],
+  "perTask": [
+    {
+      "task": "S1-question",
+      "tier": "S",
+      "bySize": "ollama:mistral-nemo:12b",
+      "byScore": "ollama:gemma4:e4b",
+      "ollama:gemma4:e4b": "3/3",
+      "ollama:qwen2.5:14b": "3/3",
+      "ollama:mistral-nemo:12b": "3/3"
+    },
+    {
+      "task": "S2-typo",
+      "tier": "S",
+      "bySize": "ollama:mistral-nemo:12b",
+      "byScore": "ollama:gemma4:e4b",
+      "ollama:gemma4:e4b": "3/3",
+      "ollama:qwen2.5:14b": "3/3",
+      "ollama:mistral-nemo:12b": "0/3"
+    },
+    {
+      "task": "S3-rename",
+      "tier": "S",
+      "bySize": "ollama:mistral-nemo:12b",
+      "byScore": "ollama:gemma4:e4b",
+      "ollama:gemma4:e4b": "3/3",
+      "ollama:qwen2.5:14b": "2/3",
+      "ollama:mistral-nemo:12b": "0/3"
+    },
+    {
+      "task": "M1-add-function",
+      "tier": "M",
+      "bySize": "ollama:qwen2.5:14b",
+      "byScore": "ollama:gemma4:e4b",
+      "ollama:gemma4:e4b": "3/3",
+      "ollama:qwen2.5:14b": "2/3",
+      "ollama:mistral-nemo:12b": "0/3"
+    },
+    {
+      "task": "M2-fix-test",
+      "tier": "M",
+      "bySize": "ollama:qwen2.5:14b",
+      "byScore": "ollama:gemma4:e4b",
+      "ollama:gemma4:e4b": "3/3",
+      "ollama:qwen2.5:14b": "3/3",
+      "ollama:mistral-nemo:12b": "0/3"
+    },
+    {
+      "task": "M3-cli-flag",
+      "tier": "M",
+      "bySize": "ollama:qwen2.5:14b",
+      "byScore": "ollama:gemma4:e4b",
+      "ollama:gemma4:e4b": "3/3",
+      "ollama:qwen2.5:14b": "3/3",
+      "ollama:mistral-nemo:12b": "0/3"
+    },
+    {
+      "task": "L1-implement",
+      "tier": "L",
+      "bySize": "ollama:gemma4:e4b",
+      "byScore": "ollama:gemma4:e4b",
+      "ollama:gemma4:e4b": "3/3",
+      "ollama:qwen2.5:14b": "3/3",
+      "ollama:mistral-nemo:12b": "0/3"
+    },
+    {
+      "task": "L2-debug",
+      "tier": "L",
+      "bySize": "ollama:gemma4:e4b",
+      "byScore": "ollama:gemma4:e4b",
+      "ollama:gemma4:e4b": "3/3",
+      "ollama:qwen2.5:14b": "2/3",
+      "ollama:mistral-nemo:12b": "0/3"
+    }
+  ],
+  "results": [
+    {
+      "task": "S1-question",
+      "model": "ollama:gemma4:e4b",
+      "run": 1,
+      "pass": true,
+      "seconds": 14,
+      "input": 5010,
+      "output": 574,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "S1-question",
+      "model": "ollama:gemma4:e4b",
+      "run": 2,
+      "pass": true,
+      "seconds": 12.2,
+      "input": 5017,
+      "output": 590,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "S1-question",
+      "model": "ollama:gemma4:e4b",
+      "run": 3,
+      "pass": true,
+      "seconds": 14.1,
+      "input": 5064,
+      "output": 703,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "S2-typo",
+      "model": "ollama:gemma4:e4b",
+      "run": 1,
+      "pass": true,
+      "seconds": 10.9,
+      "input": 8149,
+      "output": 497,
+      "turns": 3,
+      "stop": "end"
+    },
+    {
+      "task": "S2-typo",
+      "model": "ollama:gemma4:e4b",
+      "run": 2,
+      "pass": true,
+      "seconds": 12,
+      "input": 10869,
+      "output": 546,
+      "turns": 4,
+      "stop": "end"
+    },
+    {
+      "task": "S2-typo",
+      "model": "ollama:gemma4:e4b",
+      "run": 3,
+      "pass": true,
+      "seconds": 12.4,
+      "input": 13613,
+      "output": 536,
+      "turns": 5,
+      "stop": "end"
+    },
+    {
+      "task": "S3-rename",
+      "model": "ollama:gemma4:e4b",
+      "run": 1,
+      "pass": true,
+      "seconds": 13.2,
+      "input": 8120,
+      "output": 612,
+      "turns": 3,
+      "stop": "end"
+    },
+    {
+      "task": "S3-rename",
+      "model": "ollama:gemma4:e4b",
+      "run": 2,
+      "pass": true,
+      "seconds": 11.8,
+      "input": 10929,
+      "output": 522,
+      "turns": 4,
+      "stop": "end"
+    },
+    {
+      "task": "S3-rename",
+      "model": "ollama:gemma4:e4b",
+      "run": 3,
+      "pass": true,
+      "seconds": 11.1,
+      "input": 7988,
+      "output": 489,
+      "turns": 3,
+      "stop": "end"
+    },
+    {
+      "task": "M1-add-function",
+      "model": "ollama:gemma4:e4b",
+      "run": 1,
+      "pass": true,
+      "seconds": 34.2,
+      "input": 9329,
+      "output": 1826,
+      "turns": 3,
+      "stop": "end"
+    },
+    {
+      "task": "M1-add-function",
+      "model": "ollama:gemma4:e4b",
+      "run": 2,
+      "pass": true,
+      "seconds": 28.9,
+      "input": 9121,
+      "output": 1532,
+      "turns": 3,
+      "stop": "end"
+    },
+    {
+      "task": "M1-add-function",
+      "model": "ollama:gemma4:e4b",
+      "run": 3,
+      "pass": true,
+      "seconds": 27.8,
+      "input": 9040,
+      "output": 1465,
+      "turns": 3,
+      "stop": "end"
+    },
+    {
+      "task": "M2-fix-test",
+      "model": "ollama:gemma4:e4b",
+      "run": 1,
+      "pass": true,
+      "seconds": 20.1,
+      "input": 14802,
+      "output": 986,
+      "turns": 5,
+      "stop": "end"
+    },
+    {
+      "task": "M2-fix-test",
+      "model": "ollama:gemma4:e4b",
+      "run": 2,
+      "pass": true,
+      "seconds": 21.6,
+      "input": 15280,
+      "output": 1048,
+      "turns": 5,
+      "stop": "end"
+    },
+    {
+      "task": "M2-fix-test",
+      "model": "ollama:gemma4:e4b",
+      "run": 3,
+      "pass": true,
+      "seconds": 20.5,
+      "input": 18128,
+      "output": 982,
+      "turns": 6,
+      "stop": "end"
+    },
+    {
+      "task": "M3-cli-flag",
+      "model": "ollama:gemma4:e4b",
+      "run": 1,
+      "pass": true,
+      "seconds": 33.9,
+      "input": 11817,
+      "output": 1761,
+      "turns": 4,
+      "stop": "end"
+    },
+    {
+      "task": "M3-cli-flag",
+      "model": "ollama:gemma4:e4b",
+      "run": 2,
+      "pass": true,
+      "seconds": 21.6,
+      "input": 14965,
+      "output": 1023,
+      "turns": 5,
+      "stop": "end"
+    },
+    {
+      "task": "M3-cli-flag",
+      "model": "ollama:gemma4:e4b",
+      "run": 3,
+      "pass": true,
+      "seconds": 42.3,
+      "input": 9714,
+      "output": 1994,
+      "turns": 3,
+      "stop": "end"
+    },
+    {
+      "task": "L1-implement",
+      "model": "ollama:gemma4:e4b",
+      "run": 1,
+      "pass": true,
+      "seconds": 21.3,
+      "input": 5619,
+      "output": 928,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "L1-implement",
+      "model": "ollama:gemma4:e4b",
+      "run": 2,
+      "pass": true,
+      "seconds": 26.4,
+      "input": 5853,
+      "output": 1097,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "L1-implement",
+      "model": "ollama:gemma4:e4b",
+      "run": 3,
+      "pass": true,
+      "seconds": 24.3,
+      "input": 5714,
+      "output": 968,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "L2-debug",
+      "model": "ollama:gemma4:e4b",
+      "run": 1,
+      "pass": true,
+      "seconds": 36,
+      "input": 9134,
+      "output": 1456,
+      "turns": 3,
+      "stop": "end"
+    },
+    {
+      "task": "L2-debug",
+      "model": "ollama:gemma4:e4b",
+      "run": 2,
+      "pass": true,
+      "seconds": 39.5,
+      "input": 9174,
+      "output": 1535,
+      "turns": 3,
+      "stop": "end"
+    },
+    {
+      "task": "L2-debug",
+      "model": "ollama:gemma4:e4b",
+      "run": 3,
+      "pass": true,
+      "seconds": 32.8,
+      "input": 9003,
+      "output": 1330,
+      "turns": 3,
+      "stop": "end"
+    },
+    {
+      "task": "S1-question",
+      "model": "ollama:qwen2.5:14b",
+      "run": 1,
+      "pass": true,
+      "seconds": 28.3,
+      "input": 4684,
+      "output": 244,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "S1-question",
+      "model": "ollama:qwen2.5:14b",
+      "run": 2,
+      "pass": true,
+      "seconds": 25.9,
+      "input": 7152,
+      "output": 299,
+      "turns": 3,
+      "stop": "end"
+    },
+    {
+      "task": "S1-question",
+      "model": "ollama:qwen2.5:14b",
+      "run": 3,
+      "pass": true,
+      "seconds": 23.7,
+      "input": 4691,
+      "output": 253,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "S2-typo",
+      "model": "ollama:qwen2.5:14b",
+      "run": 1,
+      "pass": true,
+      "seconds": 17.8,
+      "input": 4719,
+      "output": 125,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "S2-typo",
+      "model": "ollama:qwen2.5:14b",
+      "run": 2,
+      "pass": true,
+      "seconds": 19.6,
+      "input": 7078,
+      "output": 159,
+      "turns": 3,
+      "stop": "end"
+    },
+    {
+      "task": "S2-typo",
+      "model": "ollama:qwen2.5:14b",
+      "run": 3,
+      "pass": true,
+      "seconds": 26.4,
+      "input": 4716,
+      "output": 300,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "S3-rename",
+      "model": "ollama:qwen2.5:14b",
+      "run": 1,
+      "pass": true,
+      "seconds": 32.3,
+      "input": 7491,
+      "output": 367,
+      "turns": 3,
+      "stop": "end"
+    },
+    {
+      "task": "S3-rename",
+      "model": "ollama:qwen2.5:14b",
+      "run": 2,
+      "pass": true,
+      "seconds": 25.8,
+      "input": 9590,
+      "output": 267,
+      "turns": 4,
+      "stop": "end"
+    },
+    {
+      "task": "S3-rename",
+      "model": "ollama:qwen2.5:14b",
+      "run": 3,
+      "pass": false,
+      "seconds": 64.4,
+      "input": 13445,
+      "output": 1035,
+      "turns": 5,
+      "stop": "end"
+    },
+    {
+      "task": "M1-add-function",
+      "model": "ollama:qwen2.5:14b",
+      "run": 1,
+      "pass": false,
+      "seconds": 48.7,
+      "input": 10581,
+      "output": 689,
+      "turns": 4,
+      "stop": "end"
+    },
+    {
+      "task": "M1-add-function",
+      "model": "ollama:qwen2.5:14b",
+      "run": 2,
+      "pass": true,
+      "seconds": 45.3,
+      "input": 10244,
+      "output": 666,
+      "turns": 4,
+      "stop": "end"
+    },
+    {
+      "task": "M1-add-function",
+      "model": "ollama:qwen2.5:14b",
+      "run": 3,
+      "pass": true,
+      "seconds": 41.7,
+      "input": 7586,
+      "output": 594,
+      "turns": 3,
+      "stop": "end"
+    },
+    {
+      "task": "M2-fix-test",
+      "model": "ollama:qwen2.5:14b",
+      "run": 1,
+      "pass": true,
+      "seconds": 40.4,
+      "input": 10275,
+      "output": 564,
+      "turns": 4,
+      "stop": "end"
+    },
+    {
+      "task": "M2-fix-test",
+      "model": "ollama:qwen2.5:14b",
+      "run": 2,
+      "pass": true,
+      "seconds": 35.2,
+      "input": 10126,
+      "output": 448,
+      "turns": 4,
+      "stop": "end"
+    },
+    {
+      "task": "M2-fix-test",
+      "model": "ollama:qwen2.5:14b",
+      "run": 3,
+      "pass": true,
+      "seconds": 35.9,
+      "input": 10105,
+      "output": 425,
+      "turns": 4,
+      "stop": "end"
+    },
+    {
+      "task": "M3-cli-flag",
+      "model": "ollama:qwen2.5:14b",
+      "run": 1,
+      "pass": true,
+      "seconds": 59.6,
+      "input": 13876,
+      "output": 907,
+      "turns": 5,
+      "stop": "end"
+    },
+    {
+      "task": "M3-cli-flag",
+      "model": "ollama:qwen2.5:14b",
+      "run": 2,
+      "pass": true,
+      "seconds": 97.1,
+      "input": 17026,
+      "output": 1367,
+      "turns": 6,
+      "stop": "end"
+    },
+    {
+      "task": "M3-cli-flag",
+      "model": "ollama:qwen2.5:14b",
+      "run": 3,
+      "pass": true,
+      "seconds": 38.3,
+      "input": 9731,
+      "output": 429,
+      "turns": 4,
+      "stop": "end"
+    },
+    {
+      "task": "L1-implement",
+      "model": "ollama:qwen2.5:14b",
+      "run": 1,
+      "pass": true,
+      "seconds": 24.6,
+      "input": 4778,
+      "output": 248,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "L1-implement",
+      "model": "ollama:qwen2.5:14b",
+      "run": 2,
+      "pass": true,
+      "seconds": 29.1,
+      "input": 4826,
+      "output": 336,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "L1-implement",
+      "model": "ollama:qwen2.5:14b",
+      "run": 3,
+      "pass": true,
+      "seconds": 25.6,
+      "input": 4794,
+      "output": 269,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "L2-debug",
+      "model": "ollama:qwen2.5:14b",
+      "run": 1,
+      "pass": true,
+      "seconds": 57.5,
+      "input": 10751,
+      "output": 854,
+      "turns": 4,
+      "stop": "end"
+    },
+    {
+      "task": "L2-debug",
+      "model": "ollama:qwen2.5:14b",
+      "run": 2,
+      "pass": false,
+      "seconds": 40.8,
+      "input": 7395,
+      "output": 582,
+      "turns": 3,
+      "stop": "end"
+    },
+    {
+      "task": "L2-debug",
+      "model": "ollama:qwen2.5:14b",
+      "run": 3,
+      "pass": true,
+      "seconds": 42,
+      "input": 7478,
+      "output": 528,
+      "turns": 3,
+      "stop": "end"
+    },
+    {
+      "task": "S1-question",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 1,
+      "pass": true,
+      "seconds": 37.2,
+      "input": 4835,
+      "output": 785,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "S1-question",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 2,
+      "pass": true,
+      "seconds": 27.5,
+      "input": 5883,
+      "output": 459,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "S1-question",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 3,
+      "pass": true,
+      "seconds": 46.1,
+      "input": 8414,
+      "output": 1386,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "S2-typo",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 1,
+      "pass": false,
+      "seconds": 17.3,
+      "input": 2405,
+      "output": 234,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "S2-typo",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 2,
+      "pass": false,
+      "seconds": 15.6,
+      "input": 2408,
+      "output": 395,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "S2-typo",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 3,
+      "pass": false,
+      "seconds": 2.7,
+      "input": 2299,
+      "output": 30,
+      "turns": 1,
+      "stop": "end"
+    },
+    {
+      "task": "S3-rename",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 1,
+      "pass": false,
+      "seconds": 3.8,
+      "input": 2348,
+      "output": 61,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "S3-rename",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 2,
+      "pass": false,
+      "seconds": 3.9,
+      "input": 2357,
+      "output": 64,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "S3-rename",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 3,
+      "pass": false,
+      "seconds": 5.1,
+      "input": 2351,
+      "output": 115,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "M1-add-function",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 1,
+      "pass": false,
+      "seconds": 4.7,
+      "input": 2401,
+      "output": 66,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "M1-add-function",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 2,
+      "pass": false,
+      "seconds": 4.2,
+      "input": 2399,
+      "output": 70,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "M1-add-function",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 3,
+      "pass": false,
+      "seconds": 3.9,
+      "input": 2390,
+      "output": 57,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "M2-fix-test",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 1,
+      "pass": false,
+      "seconds": 31.8,
+      "input": 8201,
+      "output": 1057,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "M2-fix-test",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 2,
+      "pass": false,
+      "seconds": 75.1,
+      "input": 20374,
+      "output": 2656,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "M2-fix-test",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 3,
+      "pass": false,
+      "seconds": 42.6,
+      "input": 8138,
+      "output": 1133,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "M3-cli-flag",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 1,
+      "pass": false,
+      "seconds": 17.5,
+      "input": 2442,
+      "output": 208,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "M3-cli-flag",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 2,
+      "pass": false,
+      "seconds": 14.9,
+      "input": 2434,
+      "output": 398,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "M3-cli-flag",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 3,
+      "pass": false,
+      "seconds": 4.3,
+      "input": 2388,
+      "output": 65,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "L1-implement",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 1,
+      "pass": false,
+      "seconds": 13.1,
+      "input": 2567,
+      "output": 315,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "L1-implement",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 2,
+      "pass": false,
+      "seconds": 9.5,
+      "input": 2331,
+      "output": 223,
+      "turns": 1,
+      "stop": "end"
+    },
+    {
+      "task": "L1-implement",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 3,
+      "pass": false,
+      "seconds": 6.7,
+      "input": 2437,
+      "output": 134,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "L2-debug",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 1,
+      "pass": false,
+      "seconds": 7.3,
+      "input": 2425,
+      "output": 152,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "L2-debug",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 2,
+      "pass": false,
+      "seconds": 15.6,
+      "input": 4161,
+      "output": 187,
+      "turns": 2,
+      "stop": "end"
+    },
+    {
+      "task": "L2-debug",
+      "model": "ollama:mistral-nemo:12b",
+      "run": 3,
+      "pass": false,
+      "seconds": 16.1,
+      "input": 2544,
+      "output": 386,
+      "turns": 2,
+      "stop": "end"
+    }
+  ]
+}
