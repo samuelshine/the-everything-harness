@@ -1,7 +1,9 @@
 import { realpathSync } from "node:fs";
 import { dirname, isAbsolute, relative, resolve, sep } from "node:path";
 import type { Sandbox, SandboxLevel } from "../sandbox";
-import type { ToolSpec } from "../types";
+import type { Image, ToolSpec } from "../types";
+import type { PlanReviewer } from "./plan";
+import type { ShellRegistry } from "./shells";
 import type { SearchEngine, WebHelper } from "./web";
 
 export type ToolContext = {
@@ -21,9 +23,15 @@ export type ToolContext = {
   webHelper?: WebHelper;
   // For WebSearch: which engine to query.
   webSearch?: SearchEngine;
+  // Background shells (ADR-0022), shared by every run in a session.
+  shells?: ShellRegistry;
+  // Whether the model can see images; Read returns them only then (ADR-0022).
+  vision?: boolean;
+  // For ExitPlanMode: asks the user to approve a plan; absent when nobody can (ADR-0022).
+  reviewPlan?: PlanReviewer;
 };
 
-export type ToolResult = { content: string; isError?: boolean };
+export type ToolResult = { content: string; isError?: boolean; images?: Image[] };
 
 // What a call would touch, so the permission engine can decide before it runs.
 export type Access =

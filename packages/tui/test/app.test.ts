@@ -432,6 +432,48 @@ describe("TuiApp", () => {
     expect(vt.text()).toContain("◆ Todos\n  ⎿  ☒ Write tests");
   });
 
+  test("ExitPlanMode shows the plan and asks; approving switches the mode and the work starts", async () => {
+    const provider = new FakeProvider([
+      callTool("ExitPlanMode", { plan: "1. Add **tests**\n2. Fix the bug" }),
+      callTool("Write", { file_path: "fix.txt", content: "fixed" }),
+      say("done"),
+    ]);
+    const { vt, type, cwd } = setup(provider);
+    await type("\x1b[Z\x1b[Z");
+    expect(vt.text()).toContain("plan mode on");
+    await type("fix it\r");
+    expect(vt.text()).toContain("╭ Plan\n│ 1. Add tests\n│ 2. Fix the bug\n╰");
+    expect(vt.text()).toContain("Approve this plan and start?");
+    await type("a");
+    await settle();
+    expect(vt.text()).toContain("✓ plan approved · edits are accepted");
+    expect(vt.text()).toContain("accept edits on");
+    expect(readFileSync(join(cwd, "fix.txt"), "utf8")).toBe("fixed");
+  });
+
+  test("/shells lists background shells and kills them", async () => {
+    const provider = new FakeProvider([
+      callTool("Bash", { command: "sleep 30", run_in_background: true }),
+      say("started"),
+    ]);
+    const { vt, type } = setup(provider, {
+      agent: {
+        provider,
+        model: "fake",
+        cwd: temp(),
+        tools: builtinTools,
+        permissions: { mode: "default", allow: [{ tool: "Bash" }], deny: [] },
+      },
+    });
+    await type("start it\r");
+    expect(vt.text()).toContain("⎿  started bash_1 in the background");
+    expect(vt.text()).toContain("1 shell running");
+    await type("/shells kill bash_1\r");
+    expect(vt.text()).toMatch(/Background shells\n {2}⎿ {2}bash_1 · killed · sleep 30/);
+    expect(vt.text()).not.toContain("1 shell running");
+    await type("\x04");
+  });
+
   test("an edit shows a diff with line numbers, removed and added lines apart", async () => {
     const provider = new FakeProvider([
       callTool("Read", { file_path: "a.txt" }),

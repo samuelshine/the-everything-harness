@@ -22,10 +22,20 @@ const PROMPT_CHARS = 400;
 const MAX_PROMPTS = 15;
 
 // Rough token count (~4 characters per token), the same estimate the Ollama adapter uses.
+// An image counts as a fixed number of tokens, not by the length of its base64.
+const IMAGE_TOKENS = 1500;
+
 export function estimateTokens(parts: { system?: string; items: Item[]; tools?: ToolSpec[] }): number {
-  const chars =
-    (parts.system?.length ?? 0) + JSON.stringify(parts.items).length + JSON.stringify(parts.tools ?? []).length;
-  return Math.ceil(chars / CHARS_PER_TOKEN);
+  let images = 0;
+  const items = JSON.stringify(parts.items, (key, value) => {
+    if (key === "images" && Array.isArray(value)) {
+      images += value.length;
+      return undefined;
+    }
+    return value;
+  });
+  const chars = (parts.system?.length ?? 0) + items.length + JSON.stringify(parts.tools ?? []).length;
+  return Math.ceil(chars / CHARS_PER_TOKEN) + images * IMAGE_TOKENS;
 }
 
 const SUMMARY_SYSTEM = `You summarise a coding session between a user and an AI coding agent so the agent can carry on without the full history. Write plain text under these headings, leaving out a heading with nothing under it:
@@ -79,7 +89,10 @@ export function cutPoint(items: Item[], keepTokens: number): number {
   let chars = 1;
   let best = items.length;
   for (let i = items.length - 1; i >= 0; i--) {
-    chars += JSON.stringify(items[i]).length + 1;
+    const item = items[i] as Item;
+    const pictures = item.kind === "tool_result" ? (item.images?.length ?? 0) : 0;
+    chars += JSON.stringify(pictures ? { ...item, images: undefined } : item).length + 1;
+    chars += pictures * IMAGE_TOKENS * CHARS_PER_TOKEN;
     if (Math.ceil(chars / CHARS_PER_TOKEN) > keepTokens) break;
     if (canCutAt(items, i)) best = i;
   }

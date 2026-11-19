@@ -97,7 +97,9 @@ export function resultLines(name: string, args: unknown, content: string, isErro
     const foot = content.match(/\[explore: (.+)\]\s*$/);
     return [result(s.dim(foot ? `Done (${foot[1]})` : "Done"), s)];
   }
+  if (name === "Read" && head.startsWith("Image ")) return [result(s.dim(head.replace(/, attached below\.$/, "")), s)];
   if (name === "Read") return [result(s.dim(`Read ${plural(lines.length, "line")}`), s)];
+  if (name === "Bash" && head.startsWith("started bash_")) return [result(s.dim(head.replace(/: .*$/, "")), s)];
   if (name === "TodoWrite") {
     try {
       const todos = parseTodos(args);

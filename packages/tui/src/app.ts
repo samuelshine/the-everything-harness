@@ -8,6 +8,7 @@ import {
   type AgentResult,
   AUTO_COMPACT_FRACTION,
   addUsage,
+  describeShell,
   emptyUsage,
   expandSkill,
   type HookRunner,
@@ -16,6 +17,7 @@ import {
   loadSession,
   type PermissionConfig,
   type PermissionMode,
+  type PlanDecision,
   ProviderError,
   parseRules,
   parseSlash,
@@ -23,6 +25,7 @@ import {
   runAgent,
   runCompaction,
   type SessionLog,
+  ShellRegistry,
   type Skill,
   similarNames,
   suggestRule,
@@ -96,6 +99,8 @@ export type ModelPick = {
   model: string;
   label: string;
   contextWindow?: number;
+  // Whether it accepts images.
+  vision?: boolean;
   // Why this model, e.g. "S: short question".
   reason: string;
 };
@@ -115,6 +120,7 @@ const BUILTIN_COMMANDS: [string, string][] = [
   ["compact", "Summarise the conversation to free context; add text to steer the summary"],
   ["btw", "Ask a side question; it is not added to the conversation"],
   ["todos", "Show the model's current to-do list"],
+  ["shells", "List background shells; /shells kill <id|all> stops them"],
   ["status", "Settings panel: model, folder and session"],
   ["config", "Settings panel: change settings"],
   ["usage", "Settings panel: tokens and context used"],
@@ -167,6 +173,8 @@ export class TuiApp {
   private sessionStart: "startup" | "resume" | "clear" | "compact" | undefined;
   private compacting = false;
   private todos: Todo[] | undefined; // the model's latest to-do list
+  private planReview: ((d: PlanDecision) => void) | undefined; // waiting for a plan approval
+  private readonly shells = new ShellRegistry();
   private tokenScale = 1; // reported tokens per estimated token, carried between prompts
   private hooks: HookRunner | undefined;
   private frame = 0;
@@ -220,6 +228,7 @@ export class TuiApp {
     t.write(BRACKETED_PASTE_ON + HIDE_CURSOR);
     this.cleanups.push(t.onData((d) => this.onData(d)));
     this.cleanups.push(t.onResize(() => this.renderer.redraw()));
+    this.cleanups.push(this.shells.onChange(() => this.render()));
     this.renderer.enter?.();
     this.commit(this.banner());
     if (this.history.length) this.showEarlier();
@@ -252,6 +261,8 @@ export class TuiApp {
   private quit(code = 0) {
     this.running?.abort.abort();
     this.approval?.resolve(false);
+    this.planReview?.({ approved: false });
+    this.shells.killAll();
     this.finished?.(code);
   }
 
@@ -276,6 +287,7 @@ export class TuiApp {
     }
     if (k.kind !== "ctrlC") this.exitArmed = false;
     if (this.approval) return this.onApprovalKey(k);
+    if (this.planReview) return this.onPlanKey(k);
     if (this.panel) return this.onPanelKey(k);
     if (k.kind === "ctrlC") {
       if (this.running) return this.interrupt();
@@ -326,6 +338,50 @@ export class TuiApp {
     }
     if (k.kind === "enter") return answer(true);
     if (k.kind === "escape" || k.kind === "ctrlC") return answer(false);
+  }
+
+  // ExitPlanMode (ADR-0022): the plan goes into the transcript, and the answer sets the mode.
+  private reviewPlan(plan: string): Promise<PlanDecision> {
+    const s = this.style;
+    this.flushText();
+    this.print([
+      "",
+      s.cyan("╭ Plan"),
+      ...plan
+        .trim()
+        .split("\n")
+        .map((l) => `${s.cyan("│")} ${inlineMarkdown(l, s)}`),
+      s.cyan("╰"),
+    ]);
+    this.block = "none";
+    this.opts.onNotify?.("teh has a plan for you to approve");
+    this.opts.terminal.write("\x07");
+    return new Promise((resolve) => {
+      this.planReview = resolve;
+      this.render();
+    });
+  }
+
+  private onPlanKey(k: Key) {
+    const resolve = this.planReview;
+    if (!resolve) return;
+    const done = (d: PlanDecision) => {
+      this.planReview = undefined;
+      this.print([
+        d.approved
+          ? `  ${this.style.green(`✓ plan approved · ${d.mode === "acceptEdits" ? "edits are accepted" : "each change asks first"}`)}`
+          : `  ${this.style.yellow("✗ keep planning")}${this.style.dim(" · Esc and type to tell teh what to change")}`,
+      ]);
+      resolve(d);
+      this.render();
+    };
+    if (k.kind === "char") {
+      const c = k.text.toLowerCase();
+      if (c === "a" || c === "1") return done({ approved: true, mode: "acceptEdits" });
+      if (c === "y" || c === "2") return done({ approved: true, mode: "default" });
+      if (c === "n" || c === "3") return done({ approved: false });
+    }
+    if (k.kind === "escape" || k.kind === "ctrlC") return done({ approved: false });
   }
 
   // --- Settings panel -----------------------------------------------------------------
@@ -482,7 +538,7 @@ export class TuiApp {
     if (!use) return;
     try {
       const pick = await use(label);
-      this.agent = { ...this.agent, provider: pick.provider, model: pick.model };
+      this.agent = { ...this.agent, provider: pick.provider, model: pick.model, vision: pick.vision ?? false };
       this.modelLabel = pick.label;
       this.contextWindow = pick.contextWindow ?? this.contextWindow;
       this.modelReason = "";
@@ -640,6 +696,26 @@ export class TuiApp {
       void this.btw(args);
       return true;
     }
+    if (name === "shells") {
+      const [verb, id] = args.trim().split(/\s+/);
+      if (verb === "kill" && id) {
+        if (id === "all") this.shells.killAll();
+        else if (!this.shells.kill(id)) this.note = `no shell ${id}`;
+      }
+      const all = this.shells.list();
+      this.flushText();
+      this.print([
+        "",
+        `${this.style.cyan("◆")} ${this.style.bold("Background shells")}`,
+        ...(all.length
+          ? all.map((x, i) => `${i === 0 ? `  ${this.style.dim("⎿")}  ` : "     "}${describeShell(x)}`)
+          : [this.style.dim("  None. The model starts one with Bash run_in_background.")]),
+        "",
+      ]);
+      this.block = "none";
+      this.render();
+      return true;
+    }
     if (name === "todos") {
       const list = this.todos?.length
         ? todoLines(this.todos, this.style)
@@ -751,6 +827,8 @@ export class TuiApp {
         session: this.session,
         signal: abort.signal,
         ...(this.contextWindow ? { contextWindow: this.contextWindow, tokenScale: this.tokenScale } : {}),
+        shells: this.shells,
+        reviewPlan: (plan: string) => this.reviewPlan(plan),
         ...(slash ? { slash } : {}),
         ...(this.hooks ? { hooks: this.hooks } : {}),
         ...(this.hooks && this.sessionStart ? { hookSessionStart: this.sessionStart } : {}),
@@ -792,7 +870,7 @@ export class TuiApp {
     if (!this.opts.pickModel || this.picked || this.history.length) return;
     this.picked = true;
     const pick = await this.opts.pickModel(prompt, this.permissions.mode === "plan");
-    this.agent = { ...this.agent, provider: pick.provider, model: pick.model };
+    this.agent = { ...this.agent, provider: pick.provider, model: pick.model, vision: pick.vision ?? false };
     this.modelLabel = pick.label;
     this.contextWindow = pick.contextWindow ?? this.contextWindow;
     this.modelReason = pick.reason;
@@ -975,6 +1053,13 @@ export class TuiApp {
         `│ ${s.bold("y")} yes   ${a.suggestion ? `${s.bold("a")} yes, and allow ${s.cyan(a.suggestion)} for this session   ` : ""}${s.bold("n")} no ${s.dim("(esc)")}`,
         s.yellow("╰"),
       );
+    } else if (this.planReview) {
+      lines.push(
+        "",
+        s.cyan("╭ Approve this plan and start?"),
+        `│ ${s.bold("a")} yes, and accept edits   ${s.bold("y")} yes, ask before each change   ${s.bold("n")} keep planning ${s.dim("(esc)")}`,
+        s.cyan("╰"),
+      );
     } else {
       if (this.running) {
         const secs = Math.floor((Date.now() - this.running.started) / 1000);
@@ -1034,7 +1119,9 @@ export class TuiApp {
       : pct >= 50 && this.agent.autoCompact !== false
         ? ` · ${pct}% context, compacts at ${Math.round(AUTO_COMPACT_FRACTION * 100)}%`
         : ` · ${fmt(this.lastInput)} context`;
-    const right = s.dim(`${this.modelLabel}${ctx}`);
+    const running = this.shells.running;
+    const shells = running ? ` · ${running} shell${running === 1 ? "" : "s"} running` : "";
+    const right = s.dim(`${this.modelLabel}${ctx}${shells}`);
     const left = `  ${modeText}`;
     const gap = Math.max(2, cols - 1 - visible(left) - visible(right));
     return left + " ".repeat(gap) + right;

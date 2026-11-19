@@ -42,5 +42,5 @@ Reaching the network is a new kind of risk: a request can carry project data to 
 - **Cost:** four more tool definitions in every request: about 3.2k characters (~800 tokens by the 4-characters estimate), roughly doubling the built-in tool definitions.
 - **Risk:** prompt injection through fetched pages. It is reduced (untrusted marking, helper reading, per-domain approval) but not removed: an approved fetch still returns text the model reads.
 - **Risk:** DuckDuckGo can rate-limit or ask for a captcha. The error says so and points to SearXNG or Brave.
-- **Found on the way:** the `--allowedTools` bug affected the model-routing eval (ADR-0014): only its first Bash rule applied. Its README says so; it should be rerun.
-- **Not decided here:** background shells (`run_in_background`, BashOutput, KillShell), ExitPlanMode, PDF and image reading.
+- **Found on the way:** the `--allowedTools` bug affected the model-routing eval (ADR-0014): only its first Bash rule applied. It was rerun on 2026-11-11 (PR #30): every model passed more, and the ranking and conclusions held.
+- **Not decided here:** background shells, ExitPlanMode, and PDF and image reading: see ADR-0022.

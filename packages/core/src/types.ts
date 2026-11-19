@@ -5,9 +5,12 @@ export type Role = "user" | "assistant";
 export type Item =
   | { kind: "text"; role: Role; text: string }
   | { kind: "tool_call"; id: string; name: string; args: unknown }
-  | { kind: "tool_result"; callId: string; name: string; content: string; isError?: boolean }
+  | { kind: "tool_result"; callId: string; name: string; content: string; isError?: boolean; images?: Image[] }
   // Opaque provider reasoning. Replayed only to the provider that produced it.
   | { kind: "reasoning"; provider: string; text?: string; opaque?: unknown };
+
+// An image for a vision model (ADR-0022), base64-encoded.
+export type Image = { mediaType: string; data: string };
 
 export type JsonSchema = Record<string, unknown>;
 

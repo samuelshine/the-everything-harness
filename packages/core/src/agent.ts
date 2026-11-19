@@ -20,13 +20,15 @@ import type { Sandbox } from "./sandbox";
 import type { SessionLog } from "./session";
 import { type Skill, skillListing } from "./skills";
 import type { OutputStyle } from "./styles";
+import type { PlanReviewer } from "./tools/plan";
+import { ShellRegistry } from "./tools/shells";
 import { skillTool } from "./tools/skill";
 import { EXPLORE_BRIEF, EXPLORE_TOOLS, type ExploreRequest, taskTool } from "./tools/task";
 import { formatTodos, latestTodos } from "./tools/todo";
 import type { Access, Tool, ToolContext, ToolResult } from "./tools/tool";
 import { ToolInputError } from "./tools/tool";
 import { type SearchEngine, WEB_HELPER_BRIEF, type WebHelper } from "./tools/web";
-import { addUsage, emptyUsage, type Item, ProviderError, type StopReason, type Usage } from "./types";
+import { addUsage, emptyUsage, type Image, type Item, ProviderError, type StopReason, type Usage } from "./types";
 
 export type AgentEvent =
   | { type: "text_delta"; text: string }
@@ -103,6 +105,13 @@ export type AgentOptions = {
   tokenScale?: number;
   // The engine WebSearch queries (ADR-0021); DuckDuckGo when unset.
   webSearch?: SearchEngine;
+  // Background shells (ADR-0022). Pass one to keep shells across runs (the interactive UI);
+  // without it the run has its own and kills its shells when it ends.
+  shells?: ShellRegistry;
+  // Whether the model can see images (ADR-0022).
+  vision?: boolean;
+  // Asks the user to approve a plan from ExitPlanMode; absent in headless runs (ADR-0022).
+  reviewPlan?: PlanReviewer;
 };
 
 // Marks text teh itself adds to the conversation, as opposed to the user's or a hook's.
@@ -178,9 +187,13 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     }
     return out;
   };
+  const shells = opts.shells ?? new ShellRegistry();
   const ctx: ToolContext = {
     cwd: opts.cwd,
     webHelper,
+    shells,
+    ...(opts.vision ? { vision: true } : {}),
+    ...(opts.reviewPlan ? { reviewPlan: reviewPlan(opts.reviewPlan, opts.permissions) } : {}),
     ...(opts.webSearch ? { webSearch: opts.webSearch } : {}),
     workspaceRoots: [projectRoot, opts.cwd, ...(opts.addDirs ?? [])],
     readState: new Map(),
@@ -239,6 +252,7 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
   let sentEstimate = 0;
   const maxTurns = opts.maxTurns ?? 50;
   const finish = (stopReason: AgentResult["stopReason"], turns: number): AgentResult => {
+    if (!opts.shells) shells.killAll();
     const total = addUsage(usage, subagentUsage);
     log?.append("session_end", { stopReason, turns, usage: total });
     return { result, stopReason, turns, usage: total, items, tokenScale: scale };
@@ -477,6 +491,15 @@ export async function runCompaction(o: CompactionOptions): Promise<CompactResult
   return r;
 }
 
+// An approved plan switches the run's permission mode, which every later tool call reads.
+function reviewPlan(review: PlanReviewer, permissions: PermissionConfig): PlanReviewer {
+  return async (plan) => {
+    const d = await review(plan);
+    if (d.approved) permissions.mode = d.mode;
+    return d;
+  };
+}
+
 // One explore subagent run: a fresh conversation on the explore model, read-only tools,
 // plan mode, and nobody to ask. Its report, with a one-line footer, is the Task result.
 async function runExplore(
@@ -554,7 +577,7 @@ async function runTool(
   emit: (e: AgentEvent) => void,
   beforeChange: (summary: string) => Promise<void>,
   report: (event: HookEvent, o: HookOutcome) => void,
-): Promise<{ content: string; isError: boolean; changed?: string; halt?: string }> {
+): Promise<{ content: string; isError: boolean; images?: Image[]; changed?: string; halt?: string }> {
   const log = opts.session;
   const fail = (content: string) => {
     emit({ type: "tool_result", id: call.id, name: call.name, content, isError: true });
@@ -669,7 +692,13 @@ async function runTool(
     halt = post.halt;
   }
   emit({ type: "tool_result", id: call.id, name: call.name, content, isError });
-  return { content, isError, ...(changes ? { changed: access.summary } : {}), ...(halt ? { halt } : {}) };
+  return {
+    content,
+    isError,
+    ...(out.images?.length ? { images: out.images } : {}),
+    ...(changes ? { changed: access.summary } : {}),
+    ...(halt ? { halt } : {}),
+  };
 }
 
 // Combine the permission engine's decision with a PreToolUse hook's (ADR-0016). A hook can
