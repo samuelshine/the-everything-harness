@@ -1,6 +1,6 @@
 # 0016 — Hooks
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-19, shipped)
 - **Date:** 2026-11-11
 - **Deciders:** Samuel Shine
 - **Related research:** `docs/research/07-feedback-guidance.md` (hooks as guides and sensors), `docs/research/10-terminal-harness.md` §9, ADR-0003, ADR-0010; sources [FBK-10], [TRM-04]

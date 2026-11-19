@@ -1,6 +1,6 @@
 # 0021 — Web, to-do and notebook tools
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-19, shipped)
 - **Date:** 2026-11-11
 - **Deciders:** Samuel Shine
 - **Related research:** `docs/research/10-terminal-harness.md` (tool set), `docs/research/07-feedback-guidance.md`, ADR-0003, ADR-0008, ADR-0010, ADR-0019, ADR-0020

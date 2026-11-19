@@ -1,6 +1,6 @@
 # 0019 — Explore subagents
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-19, shipped)
 - **Date:** 2026-11-11
 - **Deciders:** Samuel Shine
 - **Related research:** `docs/research/08-agents-delegation.md`, `docs/research/01-context-storage-persistence.md` (subagent context modes), ADR-0003, ADR-0014; sources [AGT-02], [AGT-03], [AGT-08], [CTX-19]

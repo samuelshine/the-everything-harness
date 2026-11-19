@@ -1,6 +1,6 @@
 # 0015 — Skills, slash commands, output styles and skill routing
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-19, shipped)
 - **Date:** 2026-11-03
 - **Deciders:** Samuel Shine
 - **Related research:** `docs/research/05-skills.md`, `docs/research/10-terminal-harness.md` §9, `docs/research/12-model-routing-and-local-models.md`, ADR-0010, ADR-0014; sources [SKL-01], [SKL-02], [SKL-04], [TRM-09], [TRM-10], [MCP-04]

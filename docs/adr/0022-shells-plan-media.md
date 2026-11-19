@@ -1,6 +1,6 @@
 # 0022 — Background shells, ExitPlanMode, images and PDFs
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-19, shipped)
 - **Date:** 2026-11-11
 - **Deciders:** Samuel Shine
 - **Related research:** `docs/research/10-terminal-harness.md` (background tasks row, [CMP-16]), ADR-0003, ADR-0008, ADR-0010, ADR-0021

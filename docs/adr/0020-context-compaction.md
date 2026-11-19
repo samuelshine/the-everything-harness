@@ -1,6 +1,6 @@
 # 0020 — Context compaction
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-19, shipped)
 - **Date:** 2026-11-11
 - **Deciders:** Samuel Shine
 - **Related research:** `docs/research/01-context-storage-persistence.md` §Compress, `docs/research/10-terminal-harness.md` (compaction row), `docs/research/12-model-routing-and-local-models.md` (model-aware budgets), ADR-0004, ADR-0010, ADR-0016; sources [CTX-01], [CTX-02], [TRM-32]
