@@ -1,6 +1,6 @@
 # 0017 — MCP client
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-19, shipped)
 - **Date:** 2026-11-11
 - **Deciders:** Samuel Shine
 - **Related research:** `docs/research/06-plugins-mcp.md`, `docs/research/10-terminal-harness.md` §9, ADR-0003, ADR-0010; sources [MCP-01], [MCP-02], [MCP-04], [MCP-10]
