@@ -1,5 +1,7 @@
-// A small MCP client (ADR-0017): JSON-RPC 2.0 over stdio or streamable HTTP, enough for
-// initialize, tools/list and tools/call. No SDK dependency; the protocol surface is small.
+// A small MCP client (ADR-0017, ADR-0025): JSON-RPC 2.0 over stdio or streamable HTTP, for
+// tools, resources, prompts and roots. No SDK dependency; the protocol surface is small.
+import { pathToFileURL } from "node:url";
+import type { Sandbox } from "../sandbox";
 import type { McpServerConfig } from "./config";
 
 export const MCP_PROTOCOL_VERSION = "2025-11-25";
@@ -41,13 +43,16 @@ export class StdioTransport implements Transport {
     private readonly server: Extract<McpServerConfig, { transport: "stdio" }>,
     private readonly cwd: string,
     private readonly env: Record<string, string | undefined>,
+    // When set, the server runs inside the OS sandbox at workspace-write (ADR-0025).
+    private readonly sandbox?: Sandbox,
   ) {}
 
   async start(onMessage: (m: JsonRpcMessage) => void, onClose: (why: string) => void): Promise<void> {
     const env = { ...this.env, ...this.server.env };
     const which = Bun.which(this.server.command, { PATH: env.PATH ?? "" }) ?? this.server.command;
+    const argv = [which, ...this.server.args];
     try {
-      this.proc = Bun.spawn([which, ...this.server.args], {
+      this.proc = Bun.spawn(this.sandbox ? this.sandbox.wrap(argv, "workspace-write", this.cwd) : argv, {
         cwd: this.cwd,
         env: env as Record<string, string>,
         stdin: "pipe",
@@ -118,9 +123,14 @@ export class HttpTransport implements Transport {
   private protocolVersion: string | undefined;
   private readonly abort = new AbortController();
 
+  // The WWW-Authenticate header of the last 401, which names where to sign in (ADR-0025).
+  authChallenge: string | undefined;
+
   constructor(
     private readonly server: Extract<McpServerConfig, { transport: "http" }>,
     private readonly fetchImpl: typeof fetch = fetch,
+    // An OAuth access token for the server, when the user has signed in to it.
+    private readonly token?: () => Promise<string | undefined>,
   ) {}
 
   async start(onMessage: (m: JsonRpcMessage) => void): Promise<void> {
@@ -132,8 +142,10 @@ export class HttpTransport implements Transport {
   }
 
   async send(m: JsonRpcMessage): Promise<void> {
+    const bearer = await this.token?.();
     const headers: Record<string, string> = {
       ...this.server.headers,
+      ...(bearer ? { authorization: `Bearer ${bearer}` } : {}),
       "content-type": "application/json",
       accept: "application/json, text/event-stream",
       ...(this.sessionId ? { "mcp-session-id": this.sessionId } : {}),
@@ -154,10 +166,13 @@ export class HttpTransport implements Transport {
     if (sid) this.sessionId = sid;
     if (!res.ok) {
       const body = (await res.text().catch(() => "")).slice(0, 300);
+      if (res.status === 401) this.authChallenge = res.headers.get("www-authenticate") ?? "";
       const hint =
-        res.status === 401 || res.status === 403
-          ? " (the server wants credentials; add an Authorization header in the server's config. OAuth sign-in is not supported yet)"
-          : "";
+        res.status === 401
+          ? ` (sign in with \`teh mcp login ${this.server.name}\`, or add an Authorization header in the server's config)`
+          : res.status === 403
+            ? " (the credentials were refused)"
+            : "";
       throw new McpError(`HTTP ${res.status} from ${this.server.url}${hint}${body ? `: ${body}` : ""}`, res.status);
     }
     const type = res.headers.get("content-type") ?? "";
@@ -233,6 +248,16 @@ export type McpContent =
 
 export type McpCallResult = { content?: McpContent[]; structuredContent?: unknown; isError?: boolean };
 
+export type McpResource = { uri: string; name?: string; title?: string; description?: string; mimeType?: string };
+export type McpResourceContents = { uri: string; mimeType?: string; text?: string; blob?: string };
+export type McpPromptDef = {
+  name: string;
+  title?: string;
+  description?: string;
+  arguments?: { name: string; description?: string; required?: boolean }[];
+};
+export type McpPromptMessage = { role: "user" | "assistant"; content: McpContent };
+
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
 
 export class McpClient {
@@ -242,12 +267,15 @@ export class McpClient {
   serverInfo: { name?: string; version?: string } = {};
   instructions: string | undefined;
   protocolVersion: string | undefined;
+  capabilities: { tools?: unknown; resources?: unknown; prompts?: unknown } = {};
   toolsChanged = false;
 
   constructor(
     readonly name: string,
     private readonly transport: Transport,
     private readonly clientVersion = "0.0.0",
+    // Folders the server may work in, answered to roots/list.
+    private readonly roots: string[] = [],
   ) {}
 
   async connect(timeoutMs = 30_000): Promise<void> {
@@ -259,12 +287,18 @@ export class McpClient {
       "initialize",
       {
         protocolVersion: MCP_PROTOCOL_VERSION,
-        capabilities: {},
+        capabilities: this.roots.length ? { roots: { listChanged: false } } : {},
         clientInfo: { name: "teh", title: "The Everything Harness", version: this.clientVersion },
       },
       timeoutMs,
-    )) as { protocolVersion?: string; serverInfo?: { name?: string; version?: string }; instructions?: string };
+    )) as {
+      protocolVersion?: string;
+      serverInfo?: { name?: string; version?: string };
+      instructions?: string;
+      capabilities?: McpClient["capabilities"];
+    };
     this.protocolVersion = init.protocolVersion;
+    this.capabilities = init.capabilities ?? {};
     this.serverInfo = init.serverInfo ?? {};
     this.instructions = init.instructions;
     if (this.transport instanceof HttpTransport && init.protocolVersion)
@@ -286,6 +320,47 @@ export class McpClient {
     }
     this.toolsChanged = false;
     return tools;
+  }
+
+  // Every page of a list method.
+  private async listAll<T>(method: string, key: string, timeoutMs: number): Promise<T[]> {
+    const out: T[] = [];
+    let cursor: string | undefined;
+    for (let page = 0; page < 100; page++) {
+      const r = (await this.request(method, cursor ? { cursor } : {}, timeoutMs)) as Record<string, unknown>;
+      out.push(...((r[key] as T[] | undefined) ?? []));
+      cursor = r.nextCursor as string | undefined;
+      if (!cursor) break;
+    }
+    return out;
+  }
+
+  async listResources(timeoutMs = 30_000): Promise<McpResource[]> {
+    if (!this.capabilities.resources) return [];
+    return (await this.listAll<McpResource>("resources/list", "resources", timeoutMs)).filter(
+      (r) => r && typeof r.uri === "string",
+    );
+  }
+
+  async readResource(uri: string, signal?: AbortSignal, timeoutMs = 60_000): Promise<McpResourceContents[]> {
+    const r = (await this.request("resources/read", { uri }, timeoutMs, signal)) as {
+      contents?: McpResourceContents[];
+    };
+    return r.contents ?? [];
+  }
+
+  async listPrompts(timeoutMs = 30_000): Promise<McpPromptDef[]> {
+    if (!this.capabilities.prompts) return [];
+    return (await this.listAll<McpPromptDef>("prompts/list", "prompts", timeoutMs)).filter(
+      (p) => p && typeof p.name === "string",
+    );
+  }
+
+  async getPrompt(name: string, args: Record<string, string>, timeoutMs = 60_000): Promise<McpPromptMessage[]> {
+    const r = (await this.request("prompts/get", { name, arguments: args }, timeoutMs)) as {
+      messages?: McpPromptMessage[];
+    };
+    return r.messages ?? [];
   }
 
   async callTool(name: string, args: unknown, signal?: AbortSignal, timeoutMs = 600_000): Promise<McpCallResult> {
@@ -344,11 +419,18 @@ export class McpClient {
       return;
     }
     if (m.method && m.id !== undefined) {
-      // Requests from the server. teh offers no client capabilities yet, so only ping is answered.
+      // Requests from the server: ping, and roots when we offered them. Sampling and
+      // elicitation are not offered, so they are refused.
       const reply: JsonRpcMessage =
         m.method === "ping"
           ? { jsonrpc: "2.0", id: m.id, result: {} }
-          : { jsonrpc: "2.0", id: m.id, error: { code: -32601, message: `teh does not support ${m.method}` } };
+          : m.method === "roots/list" && this.roots.length
+            ? {
+                jsonrpc: "2.0",
+                id: m.id,
+                result: { roots: this.roots.map((r) => ({ uri: pathToFileURL(r).href, name: r.split("/").pop() })) },
+              }
+            : { jsonrpc: "2.0", id: m.id, error: { code: -32601, message: `teh does not support ${m.method}` } };
       void this.transport.send(reply).catch(() => {});
       return;
     }
@@ -362,9 +444,18 @@ export class McpClient {
   }
 }
 
-// Text the model sees for a tool result. Images and audio are described, not inlined, until
-// the item model carries images.
-export function renderMcpResult(r: McpCallResult): string {
+// Images in a result, for models that can see them.
+export function mcpImages(r: McpCallResult): { mediaType: string; data: string }[] {
+  return (r.content ?? []).flatMap((c) =>
+    c.type === "image" && typeof c.data === "string" && /^image\/(png|jpeg|gif|webp)$/.test(String(c.mimeType))
+      ? [{ mediaType: String(c.mimeType), data: c.data }]
+      : [],
+  );
+}
+
+// Text the model sees for a tool result. Images are passed separately (mcpImages) and noted
+// here; audio is noted.
+export function renderMcpResult(r: McpCallResult, imagesAttached = false): string {
   const parts: string[] = [];
   for (const c of r.content ?? []) {
     if (c.type === "text") parts.push(String((c as { text: unknown }).text ?? ""));
@@ -374,7 +465,7 @@ export function renderMcpResult(r: McpCallResult): string {
     } else if (c.type === "resource_link") parts.push(`[link ${(c as { uri: string }).uri}]`);
     else if (c.type === "image" || c.type === "audio")
       parts.push(
-        `[${c.type}${(c as { mimeType?: string }).mimeType ? ` ${(c as { mimeType?: string }).mimeType}` : ""} omitted]`,
+        `[${c.type}${(c as { mimeType?: string }).mimeType ? ` ${(c as { mimeType?: string }).mimeType}` : ""} ${imagesAttached && c.type === "image" ? "attached" : "omitted"}]`,
       );
   }
   if (!parts.length && r.structuredContent !== undefined) parts.push(JSON.stringify(r.structuredContent, null, 2));

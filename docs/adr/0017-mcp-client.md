@@ -48,16 +48,6 @@ MCP servers are also a supply chain [MCP-10]:
 
 ## Consequences
 - **Existing setups work:** a Claude Code user's `.mcp.json`, and their `mcp__…` permission rules, work unchanged.
-- **Everything is loaded up front.** Every tool definition is in the prompt from the first turn. With many servers this costs context. Deferred loading with a tool-search tool [MCP-04] is the planned follow-up, triggered by a token threshold.
-- **Not yet supported:**
-  - OAuth sign-in for remote servers (a static `Authorization` header works);
-  - resources and prompts;
-  - sampling, elicitation and roots;
-  - `list_changed` reloading (the flag is recorded, not acted on);
-  - images in results;
-  - the legacy SSE transport.
-- **Security follow-ups:**
-  - run stdio servers inside the OS sandbox (ADR-0003);
-  - pin a hash of each server's tool definitions and warn when they change (the "rug pull" in doc 06);
-  - show full tool descriptions when a server is first trusted.
+- **Shipped since (ADR-0025):** deferred loading with `ToolSearch`; OAuth sign-in; resources and prompts; roots; `list_changed` reloading; images in results; running stdio servers in the OS sandbox (opt-in); tool-definition fingerprints with a warning on change.
+- **Still not supported:** sampling and elicitation; the legacy SSE transport; showing full tool descriptions at `teh trust` time.
 - **Windows:** `npx` and other `.cmd` launchers may need `"command": "cmd", "args": ["/c", "npx", ...]`, as in Claude Code.

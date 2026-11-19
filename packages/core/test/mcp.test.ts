@@ -112,7 +112,7 @@ describe("MCP client over stdio", () => {
     expect(c.servers[0]).toMatchObject({
       name: "test",
       ok: true,
-      tools: ["mcp__test__echo", "mcp__test__fail", "mcp__test__slow", "mcp__test__touch"],
+      tools: ["mcp__test__echo", "mcp__test__fail", "mcp__test__slow", "mcp__test__touch", "mcp__test__grow"],
       serverInfo: { name: "test-server", version: "1.2.3" },
     });
     expect(c.instructions).toEqual([{ server: "test", text: "Use echo to repeat text." }]);

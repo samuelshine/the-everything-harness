@@ -44,27 +44,9 @@ export async function login(io: Io, what: string | undefined, tehHome: string, d
   const nonce = randomToken();
   const oldTokens = creds.tokens();
 
-  let resolveCallback: (params: URLSearchParams) => void = () => {};
-  const callback = new Promise<URLSearchParams>((r) => {
-    resolveCallback = r;
-  });
-  const handler = (req: Request) => {
-    const url = new URL(req.url);
-    if (url.pathname !== CALLBACK_PATH) return new Response("not found", { status: 404 });
-    resolveCallback(url.searchParams);
-    return new Response(
-      '<!doctype html><meta charset=utf-8><title>teh</title><body style="font:16px system-ui;margin:3rem">You can close this tab and return to the terminal.</body>',
-      { headers: { "content-type": "text/html; charset=utf-8" } },
-    );
-  };
-  let server: ReturnType<typeof Bun.serve>;
-  try {
-    server = Bun.serve({ hostname: "127.0.0.1", port: PREFERRED_PORT, fetch: handler });
-  } catch {
-    // Only the port may change between sign-ins; any free one works.
-    server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: handler });
-  }
-  const redirectUri = `http://127.0.0.1:${server.port}${CALLBACK_PATH}`;
+  // Only the port may change between sign-ins; any free one works.
+  const listener = listenForCallback(PREFERRED_PORT, CALLBACK_PATH);
+  const redirectUri = listener.redirectUri;
   const url = authorizeUrl({
     clientId,
     redirectUri,
@@ -85,18 +67,10 @@ export async function login(io: Io, what: string | undefined, tehHome: string, d
   }
   io.err(`Waiting for the sign-in to finish (listening on ${redirectUri})…\n`);
 
-  let params: URLSearchParams;
-  try {
-    params = await Promise.race([
-      callback,
-      new Promise<never>((_, reject) => setTimeout(() => reject(new AuthError("timeout", "timed out")), TIMEOUT_MS)),
-    ]);
-  } catch {
+  const params = await listener.wait(TIMEOUT_MS);
+  if (!params) {
     io.err("teh: the sign-in did not finish within 5 minutes; run `teh login chatgpt` again\n");
     return 1;
-  } finally {
-    // Let the "you can close this tab" page finish sending.
-    void server.stop();
   }
 
   if (params.get("state") !== state) {
@@ -191,7 +165,53 @@ export async function logout(io: Io, what: string | undefined, tehHome: string, 
   return 0;
 }
 
-function openBrowser(url: string): void {
+// A one-shot loopback listener for an OAuth redirect: the preferred port, else any free one.
+export function listenForCallback(
+  preferredPort: number,
+  path: string,
+): { redirectUri: string; port: number; wait(timeoutMs: number): Promise<URLSearchParams | undefined> } {
+  let resolveCallback: (params: URLSearchParams) => void = () => {};
+  const callback = new Promise<URLSearchParams>((r) => {
+    resolveCallback = r;
+  });
+  const handler = (req: Request) => {
+    const url = new URL(req.url);
+    if (url.pathname !== path) return new Response("not found", { status: 404 });
+    resolveCallback(url.searchParams);
+    return new Response(
+      '<!doctype html><meta charset=utf-8><title>teh</title><body style="font:16px system-ui;margin:3rem">You can close this tab and return to the terminal.</body>',
+      { headers: { "content-type": "text/html; charset=utf-8" } },
+    );
+  };
+  let server: ReturnType<typeof Bun.serve>;
+  try {
+    server = Bun.serve({ hostname: "127.0.0.1", port: preferredPort, fetch: handler });
+  } catch {
+    server = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: handler });
+  }
+  const port = server.port as number;
+  return {
+    redirectUri: `http://127.0.0.1:${port}${path}`,
+    port,
+    wait: async (timeoutMs) => {
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      try {
+        return await Promise.race([
+          callback,
+          new Promise<undefined>((r) => {
+            timer = setTimeout(() => r(undefined), timeoutMs);
+          }),
+        ]);
+      } finally {
+        clearTimeout(timer);
+        // Let the "you can close this tab" page finish sending.
+        void server.stop();
+      }
+    },
+  };
+}
+
+export function openBrowser(url: string): void {
   const cmd = process.platform === "darwin" ? "open" : process.platform === "win32" ? "cmd" : "xdg-open";
   const args = process.platform === "win32" ? ["/c", "start", "", url] : [url];
   const child = spawn(cmd, args, { stdio: "ignore", detached: true });

@@ -23,11 +23,18 @@ MCP servers add tools from outside `teh` (GitHub, a browser, a database). Config
 ```json
 {"mcpServers": {"github": {"type": "http", "url": "https://api.githubcopilot.com/mcp/", "headers": {"Authorization": "Bearer ${GITHUB_TOKEN}"}}}}
 ```
-- **Transports:** stdio servers (`"command"`, `"args"`, `"env"`) and streamable HTTP servers (`"type": "http"`). OAuth sign-in isn't supported yet; use a header.
+- **Transports:** stdio servers (`"command"`, `"args"`, `"env"`) and streamable HTTP servers (`"type": "http"`).
+- **Signing in:** for a server that uses OAuth, run `teh mcp login <server>`. teh finds the server's sign-in page, registers itself, and opens your browser; tokens are kept in your keychain and refreshed. `teh mcp logout <server>` forgets them. For a server without self-registration, add `"oauth": {"clientId": "…"}` to its config. A static `"headers": {"Authorization": …}` still works.
 - **Tool names:** each tool is named `mcp__<server>__<tool>`, so Claude Code permission rules carry over.
 - **Permissions:** every MCP call asks first. `--allowedTools mcp__github` allows a whole server; `mcp__github__get_issue` allows one tool. `acceptEdits` doesn't cover MCP tools, and plan mode runs only the allowed ones.
+- **Many tools:** when the servers' tool definitions would take more than a tenth of the model's context, they are left out of the prompt. The model sees their names and loads the ones it needs with `ToolSearch`, as in Claude Code. `TEH_TOOL_SEARCH=on` or `off` (or Claude Code's `ENABLE_TOOL_SEARCH`) overrides this.
+- **Resources and prompts:** servers' resources can be listed and read by the model (`ListMcpResourcesTool`, `ReadMcpResourceTool`, which ask first like any MCP call). Their prompts are commands: `/mcp__<server>__<prompt> args`.
+- **Changing tools:** when a server says its tools changed, the new list is used from the next model request.
+- **Tool fingerprints:** the first time a server is used, a fingerprint of its tool names, descriptions and schemas is saved (`~/.teh/mcp-pins.json`). If it changes later, teh warns: a server that rewrites what its tools say can steer the model. Review with `teh mcp`, then accept with `teh mcp pin <server>`.
+- **Sandbox:** add `"sandbox": true` to a stdio server to run it in the OS sandbox, which limits writes to the project and package caches.
+- **Images** returned by a tool are passed to models that can see them.
 - **Trust:** a repo's `.mcp.json` servers start only after `teh trust`.
-- **Checking:** `teh mcp` starts each server and lists its tools.
+- **Checking:** `teh mcp` starts each server and lists its tools, resources and prompts.
 
 ## Skills and commands
 **Skills and commands** (ADR-0015). `teh` reads skills in the Agent Skills format and Claude Code's commands, so the ones you already have work as they are. It looks in `~/.teh/`, `~/.claude/`, and the project's `.teh/`, `.agents/` and `.claude/` folders; your own copy wins over a project's.
