@@ -12,6 +12,7 @@ import {
   costUsd,
   describeShell,
   emptyUsage,
+  expandMentions,
   expandSkill,
   formatUsd,
   type HookRunner,
@@ -26,11 +27,16 @@ import {
   parseRules,
   parseSlash,
   parseTodos,
+  type RewindPoint,
+  type RewindScope,
   ROUTE_LABEL,
+  type RouteResult,
+  rankFiles,
   routeOf,
   runAgent,
   runCompaction,
   type SessionLog,
+  type SessionSummary,
   ShellRegistry,
   type Skill,
   similarNames,
@@ -45,7 +51,7 @@ import { type Key, KeyParser } from "./keys";
 import { type ConfigItem, PANEL_TABS, type PanelContent, type PanelTab, renderPanel } from "./panel";
 import { InlineRenderer, type Screen } from "./renderer";
 import { BRACKETED_PASTE_OFF, BRACKETED_PASTE_ON, HIDE_CURSOR, SHOW_CURSOR, type TerminalIo } from "./terminal";
-import { makeStyle, type Style, wrap } from "./text";
+import { clip, makeStyle, type Style, wrap } from "./text";
 import { resultLines, todoLines, toolHeader, toolHeaderFromCall } from "./toolview";
 
 export type TuiOptions = {
@@ -88,6 +94,30 @@ export type TuiOptions = {
   pickModel?: (prompt: string, planMode: boolean) => Promise<ModelPick>;
   // Called after each prompt's run, for the cost ledger and trace export.
   onRunEnd?: (r: { usage: Usage; provider: AgentOptions["provider"]; model: string; session: string }) => void;
+  // Earlier prompts in this project, for Up and Ctrl+R; `add` keeps a new one.
+  promptHistory?: { entries: string[]; add(text: string): void };
+  // Paths in the project for @ completion.
+  listFiles?: () => string[];
+  // `!command`: runs a command in the user's shell; its output goes into the next prompt.
+  runShell?: (command: string, signal: AbortSignal) => Promise<{ output: string; code: number | null }>;
+  // Ctrl+G: edit the prompt in $VISUAL or $EDITOR. Called while the terminal is handed over.
+  editExternal?: (text: string) => string | undefined;
+  // Ctrl+V: save the clipboard's image to a file and return its path.
+  pasteImage?: () => Promise<string | undefined>;
+  // /resume: this project's sessions, and opening one.
+  sessions?: {
+    list(): SessionSummary[];
+    open(id: string): { session: SessionLog; items: Item[] } | undefined;
+  };
+  // /rewind: the session's points, and going back to one (ADR-0004).
+  rewind?: {
+    points(session: SessionLog): RewindPoint[];
+    apply(session: SessionLog, point: RewindPoint, scope: RewindScope): Promise<{ items: Item[]; lines: string[] }>;
+  };
+  // Chooses skills for a prompt (ADR-0015), as `teh -p` does.
+  routeSkills?: (prompt: string) => Promise<RouteResult | undefined>;
+  // Whether the terminal shows OSC 8 links and accepts OSC 52 copies.
+  hyperlinks?: boolean;
   // Animate the spinner. Off in tests, where output must be deterministic.
   animate?: boolean;
   escapeDelayMs?: number;
@@ -114,6 +144,16 @@ export type ModelPick = {
   reason: string;
 };
 
+// A list to choose from: sessions for /resume, points for /rewind.
+type Picker = {
+  title: string;
+  hint?: string;
+  items: { label: string; detail?: string }[];
+  selected: number;
+  pick: (i: number) => void;
+  cancel?: () => void;
+};
+
 type Approval = {
   tool: string;
   access: Access;
@@ -128,6 +168,9 @@ const BUILTIN_COMMANDS: [string, string][] = [
   ["clear", "Start a new conversation"],
   ["compact", "Summarise the conversation to free context; add text to steer the summary"],
   ["btw", "Ask a side question; it is not added to the conversation"],
+  ["resume", "Pick an earlier conversation in this project to continue"],
+  ["rewind", "Go back to an earlier point: code, conversation or both"],
+  ["copy", "Copy the last reply to the clipboard"],
   ["todos", "Show the model's current to-do list"],
   ["shells", "List background shells; /shells kill <id|all> stops them"],
   ["status", "Settings panel: model, folder and session"],
@@ -166,7 +209,7 @@ export class TuiApp {
   private shownLines: string[] = [];
   private saved: SavedSettings;
   private readonly keys = new KeyParser();
-  private readonly editor = new Editor();
+  private readonly editor: Editor;
   private history: Item[];
   private session: SessionLog;
   private readonly permissions: PermissionConfig;
@@ -198,6 +241,11 @@ export class TuiApp {
   private modelReason = ""; // why the model was chosen, when teh chose it
   private picked = false;
   private panel: { tab: PanelTab; selected: number } | undefined;
+  private picker: Picker | undefined;
+  private shellContext: string[] = [];
+  private notes: string[] = []; // lines printed under the next prompt (attachments, warnings) // `!` commands and their output, sent with the next prompt
+  private shellRunning: AbortController | undefined;
+  private files: string[] | undefined; // for @ completion, listed on first use
   private readonly callArgs = new Map<string, unknown>();
   private block: "none" | "text" | "tool" = "none"; // what was printed last in this reply
   private cacheDays: number;
@@ -206,7 +254,8 @@ export class TuiApp {
   private readonly startedAt = Date.now();
 
   constructor(private readonly opts: TuiOptions) {
-    this.style = makeStyle(opts.color);
+    this.style = makeStyle(opts.color, opts.hyperlinks ?? false);
+    this.editor = new Editor(opts.promptHistory?.entries ?? []);
     this.fullscreen = opts.fullscreen ?? false;
     this.renderer = this.makeRenderer(this.fullscreen);
     this.saved = structuredClone(opts.settings ?? {});
@@ -299,7 +348,13 @@ export class TuiApp {
     if (this.approval) return this.onApprovalKey(k);
     if (this.planReview) return this.onPlanKey(k);
     if (this.panel) return this.onPanelKey(k);
+    if (this.picker) return this.onPickerKey(k);
+    if (this.editor.search) {
+      this.editor.handle(k);
+      return this.render();
+    }
     if (k.kind === "ctrlC") {
+      if (this.shellRunning) return this.shellRunning.abort();
       if (this.running) return this.interrupt();
       if (this.editor.text) {
         this.editor.set("");
@@ -311,13 +366,28 @@ export class TuiApp {
       return this.render();
     }
     if (k.kind === "escape") {
+      if (this.shellRunning) return this.shellRunning.abort();
       if (this.running) return this.interrupt();
       return;
     }
+    if (k.kind === "ctrlG") return this.editInEditor();
+    if (k.kind === "ctrlV") return void this.pasteImage();
     if (k.kind === "ctrlD" && !this.editor.text) return this.quit(0);
     if (k.kind === "shiftTab") return this.cycleMode();
     if (k.kind === "ctrlL") return this.renderer.redraw();
     if (k.kind === "tab") {
+      const at = this.mentionAtCursor();
+      if (at) {
+        const first = this.fileCompletions(at.query)[0];
+        if (first) {
+          const t = this.editor.text;
+          const quoted = /\s/.test(first) ? `"${first}"` : first;
+          const tail = first.endsWith("/") ? "" : " ";
+          this.editor.text = `${t.slice(0, at.start)}@${quoted}${tail}${t.slice(this.editor.cursor)}`;
+          this.editor.cursor = at.start + 1 + quoted.length + tail.length;
+        }
+        return this.render();
+      }
       const first = this.completions()[0];
       if (first) this.editor.set(`/${first[0]} `);
       return this.render();
@@ -326,6 +396,250 @@ export class TuiApp {
     const r = this.editor.handle(k);
     if (r?.submit !== undefined) this.submit(r.submit);
     else this.render();
+  }
+
+  private onPickerKey(k: Key) {
+    const p = this.picker as Picker;
+    if (k.kind === "up") p.selected = Math.max(0, p.selected - 1);
+    else if (k.kind === "down") p.selected = Math.min(p.items.length - 1, p.selected + 1);
+    else if (k.kind === "home") p.selected = 0;
+    else if (k.kind === "end") p.selected = p.items.length - 1;
+    else if (k.kind === "enter") {
+      this.picker = undefined;
+      p.pick(p.selected);
+      return this.render();
+    } else if (k.kind === "escape" || k.kind === "ctrlC") {
+      this.picker = undefined;
+      p.cancel?.();
+    } else if (k.kind === "char" && /^[1-9]$/.test(k.text) && Number(k.text) <= p.items.length) {
+      this.picker = undefined;
+      p.pick(Number(k.text) - 1);
+      return this.render();
+    }
+    this.render();
+  }
+
+  private renderPicker(p: Picker, cols: number): string[] {
+    const s = this.style;
+    const rows = Math.max(3, Math.min(12, this.opts.terminal.rows() - 8));
+    const start = Math.max(0, Math.min(p.selected - Math.floor(rows / 2), p.items.length - rows));
+    const out = [s.gray("─".repeat(Math.max(10, cols - 1))), ` ${s.bold(p.title)}`];
+    for (let i = start; i < Math.min(p.items.length, start + rows); i++) {
+      const it = p.items[i] as Picker["items"][number];
+      const mark = i === p.selected ? s.cyan("❯") : " ";
+      const num = i < 9 ? s.dim(`${i + 1}.`) : "  ";
+      const label = i === p.selected ? s.bold(it.label) : it.label;
+      const room = Math.max(10, cols - 8);
+      const text = it.detail ? `${label}  ${s.dim(it.detail)}` : label;
+      out.push(` ${mark} ${num} ${clip(text, room)}`);
+    }
+    if (p.items.length > rows) out.push(s.dim(`   ${p.selected + 1} of ${p.items.length}`));
+    out.push(s.dim(`   ${p.hint ?? "↑↓ choose · enter select · esc cancel"}`));
+    return out;
+  }
+
+  // The "@query" being typed at the cursor, if any.
+  private mentionAtCursor(): { start: number; query: string } | undefined {
+    const before = this.editor.text.slice(0, this.editor.cursor);
+    const m = before.match(/(^|\s)@("?)([^\s"]*)$/);
+    if (!m || !this.opts.listFiles) return undefined;
+    return { start: before.length - (m[2] as string).length - (m[3] as string).length - 1, query: m[3] as string };
+  }
+
+  private fileCompletions(query: string): string[] {
+    this.files ??= this.opts.listFiles?.() ?? [];
+    return rankFiles(this.files, query, 6);
+  }
+
+  // Ctrl+G: hand the terminal to the person's editor, then take the text back.
+  private editInEditor() {
+    const edit = this.opts.editExternal;
+    if (!edit) {
+      this.note = "set $EDITOR to edit prompts in your editor";
+      return this.render();
+    }
+    const t = this.opts.terminal;
+    this.renderer.setLive([]);
+    this.renderer.flush();
+    this.renderer.leave?.();
+    t.write(BRACKETED_PASTE_OFF + SHOW_CURSOR);
+    t.setRawMode(false);
+    let text: string | undefined;
+    try {
+      text = edit(this.editor.text);
+    } finally {
+      t.setRawMode(true);
+      t.write(BRACKETED_PASTE_ON + HIDE_CURSOR);
+      if (this.renderer.enter) this.renderer.enter();
+      else this.renderer.redraw();
+    }
+    if (text !== undefined) this.editor.set(text.replace(/\n+$/, ""));
+    else this.note = "the editor exited without saving; the prompt is unchanged";
+    this.render();
+  }
+
+  // Ctrl+V: an image on the clipboard becomes an @-mention of a saved copy.
+  private async pasteImage() {
+    const path = await this.opts.pasteImage?.().catch(() => undefined);
+    if (!path) {
+      this.note = "no image on the clipboard (text pastes as usual)";
+      return this.render();
+    }
+    const quoted = /\s/.test(path) ? `@"${path}" ` : `@${path} `;
+    const before = this.editor.text.slice(0, this.editor.cursor);
+    this.editor.insert(before && !/\s$/.test(before) ? ` ${quoted}` : quoted);
+    this.render();
+  }
+
+  // `!command`: run it in the person's shell, show the output, and send both with the next prompt.
+  private async shellCommand(command: string) {
+    const s = this.style;
+    this.editor.remember(`!${command}`);
+    this.opts.promptHistory?.add(`!${command}`);
+    this.flushText();
+    this.print(["", `${s.bold(s.magenta("!"))} ${s.bold(command)}`]);
+    if (!this.opts.runShell) {
+      this.print([s.red("  ✗ shell commands are not available here"), ""]);
+      return this.render();
+    }
+    const abort = new AbortController();
+    this.shellRunning = abort;
+    this.render();
+    let output = "";
+    let code: number | null = null;
+    try {
+      ({ output, code } = await this.opts.runShell(command, abort.signal));
+    } catch (e) {
+      output = (e as Error).message;
+    } finally {
+      this.shellRunning = undefined;
+    }
+    const lines = output.replace(/\n$/, "").split("\n");
+    const shown = lines.length > 30 ? [...lines.slice(0, 30), `… ${lines.length - 30} more lines`] : lines;
+    this.print([
+      ...shown.map((l, i) => `  ${s.dim(i === 0 ? "⎿ " : "  ")} ${l}`),
+      ...(code ? [s.red(`  exit code ${code}`)] : []),
+      ...(abort.signal.aborted ? [s.red("  ⎿ Interrupted")] : []),
+      s.dim("  (sent with your next message)"),
+      "",
+    ]);
+    const kept = output.length > 30_000 ? `${output.slice(0, 30_000)}\n… (cut at 30,000 characters)` : output;
+    this.shellContext.push(
+      `<bash-input>${command}</bash-input>\n<bash-output exit_code="${code ?? "killed"}">${kept}</bash-output>`,
+    );
+    this.render();
+  }
+
+  private openResume() {
+    const list = this.opts.sessions?.list().filter((x) => x.id !== this.session.id) ?? [];
+    if (!this.opts.sessions || !list.length) {
+      this.note = this.opts.sessions ? "no other conversations in this project yet" : "resume is not available here";
+      return this.render();
+    }
+    this.picker = {
+      title: "Resume a conversation",
+      items: list.map((x) => ({
+        label: oneLine(x.firstPrompt || "(no prompt)"),
+        detail: `${ago(x.updated)} · ${x.prompts} prompt${x.prompts === 1 ? "" : "s"}${x.model ? ` · ${x.model}` : ""}`,
+      })),
+      selected: 0,
+      pick: (i) => this.resumeSession((list[i] as SessionSummary).id),
+    };
+    this.render();
+  }
+
+  private resumeSession(id: string) {
+    const s = this.style;
+    const opened = this.opts.sessions?.open(id);
+    if (!opened) {
+      this.note = "could not read that session";
+      return;
+    }
+    this.session = opened.session;
+    this.history = opened.items;
+    this.todos = latestTodos(this.history);
+    this.hooks = this.opts.hooksFor?.(this.session);
+    this.sessionStart = "resume";
+    this.picked = true;
+    this.usage = emptyUsage();
+    this.cost = 0;
+    this.lastInput = 0;
+    this.shellContext = [];
+    this.renderer.reset?.();
+    this.shownLines = [];
+    this.commit(this.banner());
+    this.showEarlier();
+    this.print([s.dim(`  (resumed ${id.slice(0, 13)})`), ""]);
+  }
+
+  private openRewind() {
+    const r = this.opts.rewind;
+    const points = r?.points(this.session) ?? [];
+    if (!r || !points.length) {
+      this.note = r ? "nothing to rewind to yet in this conversation" : "rewind is not available here";
+      return this.render();
+    }
+    // Newest first, as in Claude Code.
+    const shown = [...points].reverse();
+    this.picker = {
+      title: "Rewind to before…",
+      items: shown.map((p) => ({
+        label:
+          p.kind === "prompt"
+            ? `Prompt ${p.prompt}: ${oneLine(p.promptText)}`
+            : p.kind === "rewind"
+              ? p.title
+              : `  ${p.title}`,
+        detail: `${clock(p.time)}${p.rewound ? " · rewound" : ""}`,
+      })),
+      selected: 0,
+      pick: (i) => this.chooseScope(shown[i] as RewindPoint),
+    };
+    this.render();
+  }
+
+  private chooseScope(point: RewindPoint) {
+    const scopes: [RewindScope, string][] = [
+      ["both", "Code and conversation"],
+      ["conversation", "Conversation only (files stay as they are)"],
+      ["code", "Code only (the conversation stays as it is)"],
+    ];
+    this.picker = {
+      title: `Rewind to ${point.kind === "prompt" ? `prompt ${point.prompt}` : point.title}: what goes back?`,
+      items: scopes.map(([, label]) => ({ label })),
+      selected: 0,
+      pick: (i) => void this.applyRewind(point, (scopes[i] as [RewindScope, string])[0]),
+    };
+  }
+
+  private async applyRewind(point: RewindPoint, scope: RewindScope) {
+    const s = this.style;
+    try {
+      const r = await (this.opts.rewind as NonNullable<TuiOptions["rewind"]>).apply(this.session, point, scope);
+      if (scope !== "code") {
+        this.history = r.items;
+        this.todos = latestTodos(this.history);
+      }
+      this.flushText();
+      this.print(["", ...r.lines.map((l) => s.dim(`  ${l}`)), ""]);
+      // Going back to a prompt puts it back in the editor, ready to change and resend.
+      if (scope !== "code" && point.kind === "prompt" && !this.editor.text) this.editor.set(point.promptText);
+    } catch (e) {
+      this.print([s.red(`  ✗ ${(e as Error).message}`), ""]);
+    }
+    this.render();
+  }
+
+  // /copy: the last reply, through the terminal (OSC 52), so it works over SSH too.
+  private copyLastReply() {
+    const last = [...this.history].reverse().find((i) => i.kind === "text" && i.role === "assistant");
+    if (last?.kind !== "text") {
+      this.note = "no reply to copy yet";
+      return this.render();
+    }
+    this.opts.terminal.write(`\x1b]52;c;${Buffer.from(last.text, "utf8").toString("base64")}\x07`);
+    this.note = `copied ${last.text.length} characters (if your terminal allows clipboard access)`;
+    this.render();
   }
 
   private onApprovalKey(k: Key) {
@@ -589,6 +903,8 @@ export class TuiApp {
         s.bold("Keys"),
         "Enter send · Shift+Enter, Alt+Enter or \\ then Enter: new line · ↑/↓ history",
         "Esc interrupt · Shift+Tab permission mode · Ctrl+C clear, twice to quit · Ctrl+D quit",
+        "@path attach a file or folder (Tab completes) · !command run in your shell",
+        "Ctrl+R search earlier prompts · Ctrl+G edit in $EDITOR · Ctrl+V paste an image",
         "Typing while teh works queues your message for when it finishes.",
         ...(this.fullscreen
           ? ["Scroll: wheel, PgUp/PgDn, Shift+↑/↓, Ctrl+Home/End · select text with Shift (Option on macOS)"]
@@ -688,6 +1004,12 @@ export class TuiApp {
   private submit(text: string) {
     const trimmed = text.trim();
     if (!trimmed) return this.render();
+    if (!trimmed.startsWith("!")) this.opts.promptHistory?.add(trimmed);
+    if (trimmed.startsWith("!") && !this.running) {
+      const command = trimmed.slice(1).trim();
+      if (command) void this.shellCommand(command);
+      return this.render();
+    }
     const slash = parseSlash(trimmed);
     // The panel and side questions work while teh is busy; everything else waits its turn.
     if (slash && this.aside(slash.name, slash.args)) return;
@@ -711,7 +1033,31 @@ export class TuiApp {
       }
       prompt = expandSkill(skill, slash.args);
     }
+    if (!slash) prompt = this.withAttachments(prompt);
     void this.runPrompt(trimmed, prompt, slash ?? undefined);
+  }
+
+  // @-mentions become attached files, and `!` command output goes in front.
+  private withAttachments(prompt: string): string {
+    const s = this.style;
+    const { prompt: expanded, mentions } = expandMentions(prompt, {
+      cwd: this.agent.cwd,
+      permissions: this.permissions,
+    });
+    const problems = mentions.filter((m) => m.kind === "missing" || m.kind === "denied" || m.kind === "binary");
+    if (problems.length)
+      this.notes.push(
+        ...problems.map((m) =>
+          s.yellow(
+            `  ⚠ ${m.token}: ${m.kind === "missing" ? "no such file" : m.kind === "binary" ? "not a text file" : (m.note ?? "denied")}; not attached`,
+          ),
+        ),
+      );
+    const attached = mentions.filter((m) => m.kind === "file" || m.kind === "dir" || m.kind === "image");
+    if (attached.length) this.notes.push(s.dim(`  ⎿ attached ${attached.map((m) => m.path).join(", ")}`));
+    if (!this.shellContext.length) return expanded;
+    const context = this.shellContext.splice(0).join("\n");
+    return `${context}\n\n${expanded}`;
   }
 
   // Commands that never wait for the agent: the settings panel and /btw.
@@ -730,6 +1076,10 @@ export class TuiApp {
     }
     if (name === "btw") {
       void this.btw(args);
+      return true;
+    }
+    if (name === "copy") {
+      this.copyLastReply();
       return true;
     }
     if (name === "shells") {
@@ -792,6 +1142,12 @@ export class TuiApp {
       case "mode":
         this.cycleMode();
         return true;
+      case "resume":
+        this.openResume();
+        return true;
+      case "rewind":
+        this.openRewind();
+        return true;
       case "compact":
         void this.compact(args.trim());
         return true;
@@ -846,7 +1202,12 @@ export class TuiApp {
 
   private async runPrompt(shown: string, prompt: string, slash: { name: string; args: string } | undefined) {
     const s = this.style;
-    this.print(["", ...shown.split("\n").map((l, i) => `${i === 0 ? s.bold(s.cyan("›")) : " "} ${s.bold(l)}`), ""]);
+    this.print([
+      "",
+      ...shown.split("\n").map((l, i) => `${i === 0 ? s.bold(s.cyan("›")) : " "} ${s.bold(l)}`),
+      ...this.notes.splice(0),
+      "",
+    ]);
     const abort = new AbortController();
     this.running = { abort, started: Date.now(), prompt };
     this.textStarted = false;
@@ -856,7 +1217,11 @@ export class TuiApp {
     const run = this.opts.run ?? runAgent;
     try {
       await this.chooseModel(prompt);
+      const skillRoute = slash ? undefined : await this.opts.routeSkills?.(shown).catch(() => undefined);
+      if (skillRoute?.chosen.length)
+        this.print([s.dim(`  ⎿ skill${skillRoute.chosen.length > 1 ? "s" : ""}: ${skillRoute.chosen.join(", ")}`)]);
       const res = await run({
+        ...(skillRoute ? { skillRoute } : {}),
         ...this.agent,
         permissions: this.permissions,
         prompt,
@@ -1135,11 +1500,25 @@ export class TuiApp {
         this.renderer.setLive(lines);
         return;
       }
+      if (this.picker) {
+        lines.push(...this.renderPicker(this.picker, cols));
+        this.renderer.setLive(lines);
+        return;
+      }
+      if (this.shellRunning) lines.push(`${s.magenta("!")} ${s.dim("running… (esc to stop)")}`);
       lines.push(s.gray("─".repeat(Math.max(10, cols - 1))));
       lines.push(...this.editor.render(s, cols - 1, this.running ? "" : "Ask teh anything · /help for commands"));
       lines.push(s.gray("─".repeat(Math.max(10, cols - 1))));
       const completions = this.completions();
-      if (completions.length) {
+      const at = this.editor.search ? undefined : this.mentionAtCursor();
+      const files = at ? this.fileCompletions(at.query) : [];
+      if (this.editor.search) lines.push(s.dim("  ctrl+r older · enter use it · esc cancel"));
+      else if (files.length) {
+        for (const f of files) lines.push(`  ${s.cyan(`@${f}`)}`);
+        lines.push(s.dim("  tab to complete"));
+      } else if (this.editor.text.startsWith("!") && !this.running) {
+        lines.push(s.magenta("  ! shell mode: runs in your shell; the output goes with your next message"));
+      } else if (completions.length) {
         for (const [n, d] of completions)
           lines.push(
             `  ${s.cyan(`/${n}`.padEnd(16))} ${s.dim(d.replace(/\s+/g, " ").slice(0, Math.max(10, cols - 22)))}`,
@@ -1256,6 +1635,16 @@ export class TuiApp {
 }
 
 const visible = (s: string) => s.replace(/\x1b\[[0-9;]*m/g, "").length;
+const oneLine = (t: string) => t.replace(/\s+/g, " ").trim();
+const pad2 = (n: number) => String(n).padStart(2, "0");
+const clock = (d: Date) => `${pad2(d.getHours())}:${pad2(d.getMinutes())}`;
+function ago(d: Date): string {
+  const m = Math.round((Date.now() - d.getTime()) / 60_000);
+  if (m < 1) return "just now";
+  if (m < 60) return `${m}m ago`;
+  if (m < 48 * 60) return `${Math.round(m / 60)}h ago`;
+  return `${Math.round(m / 1440)}d ago`;
+}
 
 function fmt(n: number): string {
   return n >= 1000 ? `${(n / 1000).toFixed(n >= 10_000 ? 0 : 1)}k` : String(n);
@@ -1266,6 +1655,11 @@ function inlineMarkdown(line: string, s: Style): string {
   const h = line.match(/^(#{1,6})\s+(.*)$/);
   if (h) return s.bold(h[2] as string);
   return line
+    .replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, (_, t: string, url: string) => s.link(s.blue(t), url))
+    .replace(
+      /(^|[\s(])(https?:\/\/[^\s)<>"'`]+[^\s)<>"'`.,;:!?])/g,
+      (_, pre: string, url: string) => pre + s.link(url, url),
+    )
     .replace(/\*\*([^*]+)\*\*/g, (_, t: string) => s.bold(t))
     .replace(/`([^`]+)`/g, (_, t: string) => s.cyan(t));
 }

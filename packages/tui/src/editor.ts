@@ -16,6 +16,8 @@ export class Editor {
   private history: string[] = [];
   private historyAt = -1; // -1 = editing a new entry
   private draft = "";
+  // Ctrl+R: searching history for `query`; `at` is the history index shown, -1 for none.
+  search: { query: string; at: number; draft: string } | undefined;
 
   constructor(history: string[] = []) {
     this.history = [...history];
@@ -23,6 +25,11 @@ export class Editor {
 
   get historyEntries(): readonly string[] {
     return this.history;
+  }
+
+  // Add a prompt to history without submitting it, e.g. a `!` command.
+  remember(text: string) {
+    if (text.trim() && this.history.at(-1) !== text) this.history.push(text);
   }
 
   set(text: string) {
@@ -38,6 +45,14 @@ export class Editor {
 
   // Returns { submit } on Enter. Other keys edit in place.
   handle(key: Key): EditorResult {
+    if (key.kind === "ctrlR") {
+      this.searchOlder();
+      return;
+    }
+    if (this.search) {
+      const done = this.onSearchKey(key);
+      if (done) return;
+    }
     const t = this.text;
     const c = this.cursor;
     const lineStart = t.lastIndexOf("\n", c - 1) + 1;
@@ -122,6 +137,58 @@ export class Editor {
     }
   }
 
+  // Start a search, or move to the next older match of the same query.
+  private searchOlder() {
+    if (!this.search) this.search = { query: "", at: this.history.length, draft: this.text };
+    this.findFrom(this.search.at - 1);
+  }
+
+  private findFrom(start: number) {
+    const s = this.search;
+    if (!s) return;
+    const q = s.query.toLowerCase();
+    for (let i = Math.min(start, this.history.length - 1); i >= 0; i--) {
+      if ((this.history[i] as string).toLowerCase().includes(q)) {
+        s.at = i;
+        this.set(this.history[i] as string);
+        return;
+      }
+    }
+    // No (further) match: keep what is shown.
+  }
+
+  // Keys while searching. Returns true when the key was used up by the search.
+  private onSearchKey(key: Key): boolean {
+    const s = this.search as NonNullable<Editor["search"]>;
+    switch (key.kind) {
+      case "char":
+      case "paste":
+        s.query += key.text;
+        this.findFrom(s.at === -1 || s.at >= this.history.length ? this.history.length - 1 : s.at);
+        if (!(this.history[s.at] ?? "").toLowerCase().includes(s.query.toLowerCase())) s.at = -1;
+        return true;
+      case "backspace":
+        s.query = s.query.slice(0, -1);
+        this.findFrom(this.history.length - 1);
+        return true;
+      case "escape":
+      case "ctrlC":
+      case "ctrlG":
+        this.set(s.draft);
+        this.search = undefined;
+        return true;
+      case "enter":
+      case "tab":
+        // Accept the match into the prompt for editing; a second Enter sends it.
+        this.search = undefined;
+        return true;
+      default:
+        // Any other key accepts the match and then acts on it.
+        this.search = undefined;
+        return false;
+    }
+  }
+
   private submit(): EditorResult {
     const text = this.text;
     if (text.trim() && this.history.at(-1) !== text) this.history.push(text);
@@ -152,6 +219,14 @@ export class Editor {
 
   // Lines to show, wrapped to `cols`, with the cursor drawn in.
   render(style: Style, cols: number, placeholder = ""): string[] {
+    if (this.search) {
+      const s = this.search;
+      const found = s.at >= 0 && s.at < this.history.length;
+      const label = found || !s.query ? "search history" : "no match";
+      const head = `${style.dim(`${label}:`)} ${s.query}${style.inverse(" ")}`;
+      const shown = found ? (this.history[s.at] ?? "") : "";
+      return [head, ...wrapLine(shown.replace(/\n/g, " ⏎ "), Math.max(4, cols - 2)).map((l) => `  ${style.dim(l)}`)];
+    }
     const prefixFirst = `${style.cyan("›")} `;
     const prefixMore = "  ";
     const inner = Math.max(4, cols - 2);

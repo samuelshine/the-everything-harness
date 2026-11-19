@@ -30,8 +30,10 @@ import {
   isTrusted,
   knownModels,
   type LoadedSession,
+  listFiles,
   listSessions,
   loadModelScores,
+  loadSession,
   loadSettings,
   loadSkills,
   loadStyles,
@@ -72,10 +74,11 @@ import {
   VERSION,
 } from "@everything-harness/core";
 import { askTrust, type TerminalIo, TuiApp } from "@everything-harness/tui";
+import { clipboardImage, externalEditor, promptHistory, shellRunner, supportsHyperlinks } from "./interactive";
 import { login, logout } from "./login";
 import { planMcp, printMcp, startMcp } from "./mcp";
 import { printHooks, printPermissions, runPermissions, SANDBOX_MODES, type SandboxMode, trust } from "./permissions";
-import { rewind } from "./rewind";
+import { applyRewind, planRewind, rewind } from "./rewind";
 
 export type Io = {
   out: (s: string) => void;
@@ -463,6 +466,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
           transcriptPath: s.path,
           env: io.env,
         });
+      const editExternal = externalEditor(io.env);
       const app: TuiApp = new TuiApp({
         terminal: term,
         color: !io.env.NO_COLOR && io.env.TERM !== "dumb",
@@ -566,6 +570,43 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
         },
         checkpoint: async ({ first, title }, p) =>
           (await store.snapshot(first ? "turn" : "step", app.currentSession.id, first ? p : title)).sha,
+        promptHistory: promptHistory(home, dir),
+        listFiles: () => {
+          const git = Bun.spawnSync(["git", "ls-files", "-co", "--exclude-standard"], { cwd: dir, stdout: "pipe" });
+          return listFiles(dir, git.exitCode === 0 ? git.stdout.toString().split("\n").filter(Boolean) : undefined);
+        },
+        runShell: shellRunner(dir, io.env),
+        ...(editExternal ? { editExternal } : {}),
+        pasteImage: clipboardImage(home),
+        hyperlinks: supportsHyperlinks(io.env),
+        sessions: {
+          list: () => listSessions(home, dir),
+          open: (id) => {
+            const loaded = findSession(home, dir, id);
+            return loaded ? { session: new SessionLog(home, dir, undefined, loaded), items: loaded.items } : undefined;
+          },
+        },
+        rewind: {
+          points: (log) => loadSession(log.path).points,
+          apply: async (log, point, scope) => {
+            const loaded = loadSession(log.path);
+            const planned = await planRewind(home, root, loaded, point, scope);
+            if (typeof planned === "string") throw new Error(planned);
+            if (!planned.nothing) await applyRewind(log, point, scope, planned);
+            return {
+              items: loadSession(log.path).items,
+              lines: planned.nothing
+                ? planned.lines
+                : [...planned.lines, "Rewound. /rewind again lists a point to come back to."],
+            };
+          },
+        },
+        ...(routerMode !== "off"
+          ? {
+              routeSkills: (prompt: string) =>
+                routeSkills({ ...io, err: () => {} }, routerMode, prompt, skills, home, makeProvider),
+            }
+          : {}),
       });
       const code = await app.start();
       const h = app.currentHooks;

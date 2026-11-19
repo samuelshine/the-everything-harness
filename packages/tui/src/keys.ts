@@ -30,6 +30,9 @@ export type Key =
         | "ctrlU"
         | "ctrlL"
         | "ctrlO"
+        | "ctrlR" // search prompt history
+        | "ctrlG" // edit the prompt in $EDITOR
+        | "ctrlV" // paste an image from the clipboard
         // Scrolling the full-screen transcript.
         | "pageUp"
         | "pageDown"
@@ -183,6 +186,9 @@ export class KeyParser {
     else if (code === 23) k("wordBackspace");
     else if (code === 12) k("ctrlL");
     else if (code === 15) k("ctrlO");
+    else if (code === 18) k("ctrlR");
+    else if (code === 7) k("ctrlG");
+    else if (code === 22) k("ctrlV");
     else if (code < 32) {
       // other control keys are ignored
     } else {

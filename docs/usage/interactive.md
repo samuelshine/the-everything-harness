@@ -5,10 +5,19 @@ Run `teh` with no `-p` to work interactively (ADR-0005, ADR-0018). The UI takes 
 - **Trust:** the first time you start `teh` in a folder it asks whether you trust it. *No* still opens the folder, with the folder's own allow rules, hooks and MCP servers ignored.
 - **Projects:** each directory is its own project. `teh` starts a new session; `teh -c` continues the latest one started in this directory.
 - **Sending:** type a prompt and press Enter. Shift+Enter, Alt+Enter, or `\` then Enter adds a new line. Pasting a block keeps it as one prompt.
+- **Attaching files:** `@path` attaches a file's text (the first 2,000 lines), and `@folder/` a listing of the folder. Typing `@` offers matching paths; Tab completes. Quote paths with spaces: `@"my notes.md"`. Your Read deny rules still apply, and images are left for the model to open with Read.
+- **Shell commands:** start a line with `!` to run it in your own shell, as you would in a terminal: no sandbox and no approval, since you typed it. The output is shown, and sent along with your next message so the model sees it. Esc stops a command.
+- **History:** ↑ and ↓ step through earlier prompts, including those from earlier sessions in the same project (kept in `~/.teh/history.jsonl`). Ctrl+R searches them as you type; Ctrl+R again finds older matches, Enter takes the match into the prompt, Esc goes back to what you had.
+- **Your editor:** Ctrl+G opens the prompt in `$VISUAL` or `$EDITOR` (for example `EDITOR="code --wait"`). Save and close to bring the text back.
+- **Images:** Ctrl+V pastes an image from the clipboard (macOS, or Linux with `wl-paste` or `xclip`). It is saved under `~/.teh/cache/pasted/` and attached as an `@` path, which a model with vision opens with Read.
+- **Going back:** `/resume` lists this project's other conversations to switch to. `/rewind` lists the points of this conversation, newest first. Pick one, then choose what goes back: code and conversation, conversation only, or code only. Going back to a prompt puts its text back in the prompt box to change and resend. A rewind adds a point of its own, so it can be undone. `teh rewind` does the same outside the UI.
+- **Copying:** `/copy` copies the last reply to the clipboard through the terminal (OSC 52), which also works over SSH. Some terminals ask first or need it turned on; tmux needs `set -g set-clipboard on`.
+- **Links:** web addresses in replies are clickable in terminals that support links (iTerm2, WezTerm, kitty, Ghostty, Windows Terminal, VS Code, GNOME Terminal and others). Elsewhere the address is shown in brackets after the link text. `TEH_HYPERLINKS=1` or `0` overrides the detection.
+- **Skills:** with `--skill-router embed` (or `TEH_SKILL_ROUTER`), each prompt is matched against your skills as in `teh -p`, and a chosen skill shows as `⎿ skill: <name>` under the prompt (ADR-0015). It is off by default.
 - **While it works:** Esc interrupts. Anything you type is queued and sent when it finishes.
 - **Approvals:** when `teh` needs approval it asks inline. `y` allows once, `a` allows that kind of action for the rest of the session, and `n` refuses.
 - **Modes:** Shift+Tab cycles the permission mode: ask, accept edits, plan.
-- **Commands:** `/clear`, `/compact` and `/exit`, plus your skills and commands. `/` shows completions.
+- **Commands:** `/clear`, `/compact`, `/resume`, `/rewind`, `/copy` and `/exit`, plus your skills and commands. `/` shows completions.
 - **Settings panel:** `/status`, `/config`, `/usage` and `/help` open a panel over the prompt box. ←/→ or Tab switches tabs, Enter changes a setting, Esc closes it.
   - **This session:** permission mode, the model (switch to any installed one), full screen or inline (switched in place), and auto-compact.
   - **This project:** its model and the mode to start in, saved to `.teh/settings.local.json`, which is kept out of git.

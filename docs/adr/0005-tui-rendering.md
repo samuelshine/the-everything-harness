@@ -56,11 +56,6 @@ ADR-0001 keeps the engine free of terminal code, so the UI is a separate package
 - **Testable without a terminal.** A small virtual terminal in the tests interprets the renderer's escape codes, so tests can assert on the screen and scrollback a person would see. The UI is tested end to end with the fake provider.
 - **Resizing** redraws the live area. Terminals that reflow scrollback on resize can leave a stale copy of the live area above it; Ctrl+L redraws.
 - **Not yet:**
-  - plan-mode approval of a written plan;
-  - `@file` mentions and `!` shell mode;
-  - Ctrl+R history search and an external editor (Ctrl+G);
-  - `/model` switching, `/resume` picker and `/rewind` in the UI (the `teh rewind` command works);
-  - images, OSC 8 links, OSC 52 copy;
-  - the skill router for interactive prompts;
   - the terminal test matrix in doc 10 §7 (tmux, Windows Terminal, JetBrains).
+  - Shipped since: plan approval (ADR-0022), model switching on the Config tab (ADR-0018), and `@file`, `!`, Ctrl+R, Ctrl+G, images, `/resume`, `/rewind`, OSC 8, OSC 52 and the interactive skill router (ADR-0024).
 - **Revisit** if keeping our own renderer costs more than adopting a maintained one, or if users ask for a full-screen mode, which would come as an opt-in alternative.
