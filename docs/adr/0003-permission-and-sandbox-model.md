@@ -1,6 +1,6 @@
 # 0003 — Permission and sandbox model
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-19, shipped)
 - **Date:** 2026-11-04
 - **Deciders:** Samuel Shine
 - **Related research:** `docs/research/10-terminal-harness.md` §4, `docs/research/11-competitive-landscape.md` §2–3, ADR-0008, ADR-0010, ADR-0015; sources [TRM-04], [TRM-13], [TRM-14], [TRM-19], [CMP-07], [CMP-10], [CMP-13], [CMP-14]

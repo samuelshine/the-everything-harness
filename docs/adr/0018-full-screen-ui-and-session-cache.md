@@ -1,6 +1,6 @@
 # 0018 — Full-screen UI by default, and a session cache kept for 3 days
 
-- **Status:** Proposed
+- **Status:** Accepted (2026-11-19, shipped)
 - **Date:** 2026-11-11
 - **Deciders:** Samuel Shine
 - **Related research:** `docs/research/10-terminal-harness.md` §2 and §7, ADR-0004, ADR-0005; sources [TRM-08], [TRM-16], [TRM-27]
