@@ -13,6 +13,7 @@ Where `teh` stands against the build order in [synthesis §4](research/00-synthe
 | 4 Sandbox and permissions | Parsed shell rules, trust, protected paths, Seatbelt and bubblewrap |
 | 5 Extensions | Hooks, MCP client (stdio and HTTP), skills and commands, output styles, skill router |
 | 6 Subagents (part) | Read-only explore subagents |
+| 1 Providers (M1) | Anthropic, OpenAI, ChatGPT plan, OpenAI-compatible servers; capability registry; cost per auth route |
 
 ## Milestones
 | | Milestone | Contents |
