@@ -3,6 +3,8 @@
 export const VERSION = "0.0.0";
 
 export * from "./agent";
+export * from "./auth/chatgpt";
+export * from "./auth/secrets";
 export * from "./cache";
 export * from "./checkpoints";
 export * from "./compact";
@@ -12,9 +14,14 @@ export * from "./mcp";
 export * from "./modelpolicy";
 export * from "./permissions";
 export * from "./providers";
+export * from "./providers/anthropic";
+export * from "./providers/compatible";
+export * from "./providers/errors";
 export * from "./providers/fake";
 export * from "./providers/ollama";
+export * from "./providers/openai";
 export type * from "./providers/provider";
+export * from "./providers/registry";
 export * from "./readonly";
 export * from "./router";
 export * from "./sandbox";

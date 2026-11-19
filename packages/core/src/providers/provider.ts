@@ -1,4 +1,5 @@
 import type { ModelRequest, StreamEvent } from "../types";
+import type { AuthRoute } from "./registry";
 
 export type ModelInfo = {
   id: string;
@@ -19,6 +20,8 @@ export type ProbeResult = {
 
 export interface Provider {
   readonly id: string;
+  // How its tokens are paid for (ADR-0002); shown in the status line (ADR-0009).
+  readonly route: AuthRoute;
   listModels(): Promise<ModelInfo[]>;
   probe(model: string): Promise<ProbeResult>;
   stream(req: ModelRequest, signal?: AbortSignal): AsyncIterable<StreamEvent>;

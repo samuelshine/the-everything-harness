@@ -40,6 +40,9 @@ export type StopReason = "end" | "tool_use" | "max_tokens" | "refusal" | "error"
 export type StreamEvent =
   | { type: "text_delta"; text: string }
   | { type: "reasoning_delta"; text: string }
+  // A finished reasoning block the provider needs back unchanged on the next request (an
+  // Anthropic thinking signature, OpenAI encrypted reasoning). Kept in stream order.
+  | { type: "reasoning"; text?: string; opaque: unknown }
   | { type: "tool_call"; id: string; name: string; args: unknown }
   | { type: "usage"; usage: Usage }
   | { type: "stop"; reason: StopReason };

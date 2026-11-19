@@ -104,3 +104,17 @@ The router, context engine and UI read capabilities only from this registry.
 - **Ollama setup is part of the product.** When a model's real window is too small for the agent's first request, `teh` refuses with the exact fix (`OLLAMA_CONTEXT_LENGTH=65536`) rather than letting Ollama truncate silently [RTE-08].
 - **Prompt profiles per model family** (system-prompt overlay, edit format, tool-description style) live beside the adapters but are chosen from the registry, not hard-coded per provider.
 - **Revisit** if keeping fidelity across four adapters costs more than it is worth. The fallback is adopting the AI SDK for long-tail providers only, while keeping our own canonical model.
+
+## Implementation notes (2026-11-19)
+Shipped in `packages/core/src/providers/`: `anthropic`, `openai` (API key and the `chatgpt` plan route), and a generic `openai-compatible` adapter with presets for LM Studio, llama.cpp, vLLM, OpenRouter and Groq.
+- **SDKs pinned** at `@anthropic-ai/sdk` 1.4.0 and `openai` 7.49.0, both used through their `fetch` option so recorded responses drive the contract tests (`packages/core/test/providers.test.ts`).
+- **Reasoning round-trip.** A new `reasoning` stream event carries a finished block (an Anthropic thinking block with its signature, or an OpenAI reasoning item with `encrypted_content`). The loop keeps items in stream order, so interleaved thinking replays exactly. Reasoning goes back only to the provider id that produced it.
+- **Caching.** Anthropic gets two breakpoints: the system prompt (covering the tools) and the newest block. OpenAI and compatible servers cache implicitly; their cached tokens are reported as `cachedRead`.
+- **Thinking.** Adaptive thinking with summaries on Claude 4.6 and later; older Claude models run without thinking rather than with a token budget. OpenAI reasoning models get `reasoning.summary: "auto"`.
+- **Not enabled:**
+  - server-side refusal fallbacks, because a pinned model must not quietly become another (ADR-0014); a refusal stops the turn;
+  - eager tool-input streaming, because a truncated input could run as a tool call.
+- **Capability registry.** A models.dev snapshot of Anthropic and OpenAI models with tool calling (`registry-snapshot.json`, refreshed by `packages/core/scripts/update-model-registry.ts`), then the user's `modelOverrides`. Live probe caching is not built yet.
+- **Provider config is user-only.** `providers` and `modelOverrides` are read only from `~/.teh/settings.json`, like the web search engine (ADR-0021), so a repository cannot redirect requests or keys.
+- **Cost.** `costUsd(route, caps, usage)`: list prices for an API key, zero for the ChatGPT plan and local models. Prices above 200k-token contexts (tiered) are not modelled.
+- **Live check.** The compatible adapter ran a fix-the-bug task end to end against Ollama's `/v1` endpoint (gemma4:e4b, 6 turns, test passing). The Anthropic and OpenAI adapters are covered by recorded responses only, until a live run with keys.
