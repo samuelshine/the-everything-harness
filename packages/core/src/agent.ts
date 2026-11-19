@@ -339,6 +339,11 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     let text = "";
     let reasoning = "";
     const calls: { id: string; name: string; args: unknown }[] = [];
+    // What the model produced, in stream order. Providers that need their reasoning back
+    // (thinking signatures, encrypted reasoning) send it as finished blocks between the text
+    // and tool calls, and that order is replayed exactly.
+    let ordered: Item[] = [];
+    let opaqueReasoning = false;
     let stop: StopReason = "end";
     let turnUsage = emptyUsage();
 
@@ -360,25 +365,40 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
           started = true;
           if (ev.type === "text_delta") {
             text += ev.text;
+            const last = ordered.at(-1);
+            if (last?.kind === "text") last.text += ev.text;
+            else ordered.push({ kind: "text", role: "assistant", text: ev.text });
             emit(ev);
           } else if (ev.type === "reasoning_delta") {
             reasoning += ev.text;
             emit(ev);
-          } else if (ev.type === "tool_call") calls.push(ev);
-          else if (ev.type === "usage") turnUsage = addUsage(turnUsage, ev.usage);
+          } else if (ev.type === "reasoning") {
+            opaqueReasoning = true;
+            ordered.push({
+              kind: "reasoning",
+              provider: opts.provider.id,
+              ...(ev.text ? { text: ev.text } : {}),
+              opaque: ev.opaque,
+            });
+          } else if (ev.type === "tool_call") {
+            calls.push(ev);
+            ordered.push({ kind: "tool_call", id: ev.id, name: ev.name, args: ev.args });
+          } else if (ev.type === "usage") turnUsage = addUsage(turnUsage, ev.usage);
           else stop = ev.reason;
         }
         break;
       } catch (e) {
         const tooLong = e instanceof ProviderError && e.kind === "context_exceeded";
         if (!tooLong || started || attempt > 0 || opts.autoCompact === false || !(await compactNow(0))) throw e;
+        ordered = [];
       }
     }
 
-    const produced: Item[] = [];
-    if (reasoning) produced.push({ kind: "reasoning", provider: opts.provider.id, text: reasoning });
-    if (text) produced.push({ kind: "text", role: "assistant", text });
-    for (const c of calls) produced.push({ kind: "tool_call", id: c.id, name: c.name, args: c.args });
+    // Reasoning that came only as text (Ollama) goes first, as before.
+    const produced: Item[] =
+      reasoning && !opaqueReasoning
+        ? [{ kind: "reasoning", provider: opts.provider.id, text: reasoning }, ...ordered]
+        : ordered;
     for (const item of produced) {
       items.push(item);
       log?.append("assistant_item", item);

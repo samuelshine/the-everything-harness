@@ -143,6 +143,7 @@ describe("TuiApp", () => {
     let second: ModelRequest | undefined;
     const provider: Provider = {
       id: "slow",
+      route: "local",
       listModels: async () => [],
       probe: async () => ({ supportsTools: true, notes: [] }),
       async *stream(req: ModelRequest, signal?: AbortSignal): AsyncIterable<StreamEvent> {
@@ -177,6 +178,7 @@ describe("TuiApp", () => {
     const seen: string[] = [];
     const provider: Provider = {
       id: "gated",
+      route: "local",
       listModels: async () => [],
       probe: async () => ({ supportsTools: true, notes: [] }),
       async *stream(req: ModelRequest): AsyncIterable<StreamEvent> {
@@ -409,6 +411,7 @@ describe("TuiApp", () => {
     ];
     const provider: Provider = {
       id: "fake",
+      route: "local",
       listModels: async () => [],
       probe: async () => ({ supportsTools: true, notes: [] }),
       async *stream(req: ModelRequest): AsyncIterable<StreamEvent> {

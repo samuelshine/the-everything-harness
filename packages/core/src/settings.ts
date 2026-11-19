@@ -7,6 +7,8 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { type HookConfig, mergeHooks, parseHooks } from "./hooks";
 import { PERMISSION_MODES, type PermissionMode, parseRules, type Rule } from "./permissions";
+import type { CompatibleConfig } from "./providers/compatible";
+import type { Capabilities } from "./providers/registry";
 
 export type SettingsScope = "user" | "project";
 
@@ -37,6 +39,12 @@ export type LoadedSettings = {
   // "webSearch": {"engine": "duckduckgo" | "searxng" | "brave", "url": "…"} (ADR-0021). User
   // settings only: a repository must not choose where your searches go.
   webSearch?: { engine: "duckduckgo" | "searxng" | "brave"; url?: string };
+  // "providers": OpenAI-compatible servers by name, {"baseUrl", "apiKeyEnv"?, "contextWindow"?,
+  // "paid"?, "streamUsage"?, "vision"?} (ADR-0002). "modelOverrides": capability corrections by
+  // "<provider>:<model>". User settings only: a repository must not choose where requests, and
+  // the keys that go with them, are sent.
+  providers?: Record<string, CompatibleConfig>;
+  modelOverrides?: Record<string, Capabilities>;
   // "model": the model to use when none is given on the command line (ADR-0014). The
   // project's wins over the user's. "roles": {"explore": model} for explore subagents.
   model: { user?: string; project?: string };
@@ -113,6 +121,16 @@ export function loadSettings(tehHome: string, projectRoot: string, home = homedi
       )
         out.webSearch = { engine, ...(typeof w.url === "string" ? { url: w.url } : {}) };
       else out.problems.push({ path, message: 'webSearch.engine must be "duckduckgo", "searxng" or "brave"' });
+    }
+    if (d.providers !== undefined && f.scope === "user") {
+      const parsed = parseProviders(d.providers);
+      if (typeof parsed === "string") out.problems.push({ path, message: parsed });
+      else out.providers = parsed;
+    }
+    if (d.modelOverrides !== undefined && f.scope === "user") {
+      if (d.modelOverrides && typeof d.modelOverrides === "object" && !Array.isArray(d.modelOverrides))
+        out.modelOverrides = d.modelOverrides as Record<string, Capabilities>;
+      else out.problems.push({ path, message: "modelOverrides must be an object keyed by <provider>:<model>" });
     }
     if (typeof d.autoCompact === "boolean") out.autoCompact = d.autoCompact;
     else if (d.autoCompact !== undefined) out.problems.push({ path, message: "autoCompact must be true or false" });
@@ -239,4 +257,23 @@ export function setProjectSetting(projectRoot: string, key: string, value: unkno
   mkdirSync(dir, { recursive: true });
   if (!existsSync(ignore)) writeFileSync(ignore, "settings.local.json\n");
   return setSetting(join(dir, "settings.local.json"), key, value);
+}
+
+function parseProviders(v: unknown): Record<string, CompatibleConfig> | string {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return "providers must be an object keyed by provider name";
+  const out: Record<string, CompatibleConfig> = {};
+  for (const [name, raw] of Object.entries(v as Record<string, unknown>)) {
+    const c = raw as Record<string, unknown>;
+    if (!/^[a-z][a-z0-9-]*$/.test(name)) return `provider name "${name}" must be lower-case letters, digits and dashes`;
+    if (["ollama", "anthropic", "openai", "chatgpt"].includes(name))
+      return `"${name}" is built in and cannot be redefined under providers`;
+    if (!c || typeof c !== "object") return `providers.${name} must be an object`;
+    if (c.baseUrl !== undefined && typeof c.baseUrl !== "string") return `providers.${name}.baseUrl must be a URL`;
+    if (c.apiKeyEnv !== undefined && typeof c.apiKeyEnv !== "string")
+      return `providers.${name}.apiKeyEnv must name an environment variable`;
+    if (c.contextWindow !== undefined && typeof c.contextWindow !== "number")
+      return `providers.${name}.contextWindow must be a number of tokens`;
+    out[name] = c as CompatibleConfig;
+  }
+  return out;
 }

@@ -10,8 +10,11 @@ import {
   type Checkpoint,
   CheckpointError,
   CheckpointStore,
+  capabilities,
   capableModels,
   chooseModel,
+  configuredCloudProviders,
+  costUsd,
   countHooks,
   createProvider,
   DEFAULT_CACHE_RETENTION_DAYS,
@@ -24,6 +27,7 @@ import {
   findStyle,
   HookRunner,
   isTrusted,
+  knownModels,
   type LoadedSession,
   listSessions,
   loadModelScores,
@@ -36,6 +40,7 @@ import {
   type PermissionMode,
   type Provider,
   ProviderError,
+  type ProviderSettings,
   parseModelRef,
   parseRule,
   parseSlash,
@@ -45,6 +50,7 @@ import {
   ROUTER_MODES,
   type RouteResult,
   type RouterMode,
+  routeOf,
   runAgent,
   SessionLog,
   type Skill,
@@ -57,9 +63,11 @@ import {
   TranscriptCache,
   tehHome,
   triage,
+  type Usage,
   VERSION,
 } from "@everything-harness/core";
 import { askTrust, type TerminalIo, TuiApp } from "@everything-harness/tui";
+import { login, logout } from "./login";
 import { planMcp, printMcp, startMcp } from "./mcp";
 import { printHooks, printPermissions, runPermissions, SANDBOX_MODES, type SandboxMode, trust } from "./permissions";
 import { rewind } from "./rewind";
@@ -83,7 +91,7 @@ export type Deps = { provider?: (name: string) => Provider };
 
 export const USAGE = `Usage: teh [options] [prompt]
        teh -p [options] [prompt]
-       teh models
+       teh models | teh login chatgpt | teh logout chatgpt
        teh rewind [point] | teh undo | teh sessions | teh checkpoints | teh restore <id>
        teh skills | teh styles | teh hooks | teh mcp | teh permissions | teh trust
 
@@ -98,9 +106,11 @@ Options:
                                 transcript is cached for 3 days ("cacheRetentionDays" in
                                 ~/.teh/settings.json); the conversation itself is kept after that
   -r, --resume <id>             Continue a session by id (or prefix); \`teh sessions\` lists them
-  --model <provider:model>      Model to use, e.g. ollama:gemma4:e4b (or set TEH_MODEL; a resumed
-                                session keeps its model unless you pass one). Without it, teh picks
-                                an installed model to fit the task and keeps it for the session
+  --model <provider:model>      Model to use, e.g. ollama:gemma4:e4b, anthropic:claude-sonnet-5-5,
+                                openai:<model>, chatgpt:<model> or lmstudio:<model> (or set TEH_MODEL;
+                                a resumed session keeps its model unless you pass one). Without it,
+                                teh picks an installed local model to fit the task, else
+                                anthropic:claude-opus-5-5 when ANTHROPIC_API_KEY is set
   --output-format <format>      text (default), json or stream-json
   --permission-mode <mode>      default (ask; denied when headless), acceptEdits, plan, bypassPermissions
   --allowedTools <rules...>     Allow without asking, e.g. "Edit" "Bash(npm test:*)" "Bash(git add *)"
@@ -129,7 +139,9 @@ Options:
   -h, --help                    Show this help
 
 Commands:
-  models                        List local Ollama models and whether they support tools
+  models                        List models from Ollama and every configured provider
+  login chatgpt                 Continue with ChatGPT: use your ChatGPT plan (opens a browser)
+  logout chatgpt                Sign out of ChatGPT and revoke the sign-in
   rewind [point]                Go back to any step of the latest session: lists titled points,
                                 then restores code, conversation or both
       --code-only               Restore files only
@@ -160,13 +172,25 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     return 2;
   }
   const { values: v, positionals } = parsed;
-  const makeProvider = deps.provider ?? ((name: string) => createProvider(name, io.env));
+  // Providers read "providers" and "modelOverrides" from the user's settings only (ADR-0002).
+  const providerSettings = (): ProviderSettings => {
+    const home = tehHome(io.env);
+    const loaded = loadSettings(home, findProjectRoot(io.cwd), userHome(io));
+    return {
+      tehHome: home,
+      ...(loaded.providers ? { providers: loaded.providers } : {}),
+      ...(loaded.modelOverrides ? { overrides: loaded.modelOverrides } : {}),
+    };
+  };
+  const makeProvider = deps.provider ?? ((name: string) => createProvider(name, io.env, providerSettings()));
 
   if (v.version) {
     io.out(`teh ${VERSION}\n`);
     return 0;
   }
-  if (positionals[0] === "models") return listModels(io, makeProvider);
+  if (positionals[0] === "models") return listModels(io, makeProvider, providerSettings());
+  if (positionals[0] === "login") return login(io, positionals[1], tehHome(io.env));
+  if (positionals[0] === "logout") return logout(io, positionals[1], tehHome(io.env));
   if (positionals[0] === "checkpoints") return listCheckpoints(io);
   if (positionals[0] === "sessions" && positionals[1] === "rm") return removeSession(io, positionals[2]);
   if (positionals[0] === "sessions") return printSessions(io);
@@ -329,24 +353,32 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   const scores = loadModelScores(home);
   let autoReason: string | undefined;
   if (!modelSpec) {
+    let listError: string | undefined;
     try {
       installed = await makeProvider("ollama").listModels();
     } catch (e) {
-      io.err(
-        `teh: no model selected, and the local models could not be listed (${(e as Error).message})\n  fix: start Ollama, or pass --model <provider:model>\n`,
-      );
-      return 2;
+      listError = (e as Error).message;
     }
     const sorted = triage(typed, { planMode: mode === "plan" });
-    const choice = chooseModel(installed, sorted.tier, scores);
-    if (!choice) {
+    const choice = installed ? chooseModel(installed, sorted.tier, scores) : undefined;
+    // Local models cost nothing, so they come first. Without one, an Anthropic key picks the
+    // default Claude model; triage across cloud models waits for evals (ADR-0014).
+    const cloud = choice ? undefined : defaultCloudModel(io.env);
+    if (choice) {
+      modelSpec = `ollama:${choice.model.id}`;
+      autoReason = `${sorted.tier}: ${sorted.reason}${choice.basis === "measured" ? "; best measured for this size" : ""}`;
+    } else if (cloud) {
+      modelSpec = cloud;
+      autoReason = "no local model with tool calling; the default for your API key";
+      installed = undefined;
+    } else {
       io.err(
-        "teh: no model selected, and no installed model supports tool calling\n  fix: `ollama pull qwen2.5:14b`, or pass --model ollama:<name>; `teh models` lists local models\n",
+        listError
+          ? `teh: no model selected, and the local models could not be listed (${listError})\n  fix: start Ollama, set ANTHROPIC_API_KEY, or pass --model <provider:model>\n`
+          : "teh: no model selected, and no installed model supports tool calling\n  fix: `ollama pull qwen2.5:14b`, set ANTHROPIC_API_KEY, or pass --model <provider:model>; `teh models` lists models\n",
       );
       return 2;
     }
-    modelSpec = `ollama:${choice.model.id}`;
-    autoReason = `${sorted.tier}: ${sorted.reason}${choice.basis === "measured" ? "; best measured for this size" : ""}`;
   }
 
   const mcpPlan = planMcp(io, v["mcp-config"] ?? [], v["strict-mcp-config"] ?? false);
@@ -370,6 +402,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     const exploreSpec =
       startSettings.exploreModel.project ??
       startSettings.exploreModel.user ??
+      defaultExploreModel(ref.provider) ??
       (await localModels(makeProvider, installed).then(async (labels) => {
         if (!labels.length) return undefined;
         const list = installed ?? (await makeProvider("ollama").listModels());
@@ -440,7 +473,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
             : {}),
           ...(startSettings.autoCompact !== undefined ? { autoCompact: startSettings.autoCompact } : {}),
         },
-        models: await localModels(makeProvider, installed),
+        models: [...(await localModels(makeProvider, installed)), ...cloudModels(io.env, providerSettings())],
         useModel: async (label: string) => {
           const r = parseModelRef(label);
           const p = makeProvider(r.provider);
@@ -584,6 +617,10 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
           duration_ms: Math.round(performance.now() - started),
           session_id: session.id,
           usage: res.usage,
+          auth_route: provider.route,
+          ...(costOf(provider, ref.model, res.usage) !== undefined
+            ? { total_cost_usd: costOf(provider, ref.model, res.usage) }
+            : {}),
           denied_actions: denied.map((d) => d.summary),
           suggested_rules: [...new Set(denied.flatMap((d) => (d.suggestion ? [d.suggestion] : [])))],
         })}\n`,
@@ -684,27 +721,58 @@ function usageError(io: Io, message: string): number {
   return 2;
 }
 
-async function listModels(io: Io, makeProvider: (name: string) => Provider): Promise<number> {
-  try {
-    const models = await makeProvider("ollama").listModels();
-    if (models.length === 0) {
-      io.out("No Ollama models installed. Try: ollama pull qwen2.5:14b\n");
-      return 0;
+async function listModels(
+  io: Io,
+  makeProvider: (name: string) => Provider,
+  settings: ProviderSettings,
+): Promise<number> {
+  const names = ["ollama", ...configuredCloudProviders(io.env, settings), ...Object.keys(settings.providers ?? {})];
+  let shown = 0;
+  for (const name of [...new Set(names)]) {
+    try {
+      const models = await makeProvider(name).listModels();
+      if (!models.length) {
+        if (name === "ollama") io.out("No Ollama models installed. Try: ollama pull qwen2.5:14b\n\n");
+        continue;
+      }
+      io.out(`${name} (use as --model ${name}:<name>):\n`);
+      for (const m of models) {
+        const tools = m.supportsTools === undefined ? "" : m.supportsTools ? "tools" : "no tools";
+        const ctx = m.contextWindow ? `${Math.round(m.contextWindow / 1024)}k max context` : "";
+        const caps = capabilities(name, m.id, settings.overrides);
+        const price =
+          caps?.cost && routeOf(name) === "api-key" ? `$${caps.cost.input}/$${caps.cost.output} per 1M` : "";
+        io.out(`  ${m.id.padEnd(32)} ${tools.padEnd(9)} ${ctx.padEnd(18)} ${price}\n`);
+      }
+      io.out("\n");
+      shown++;
+    } catch (e) {
+      if (e instanceof ProviderError) io.err(`teh: ${name}: ${e.message}${e.hint ? ` (${e.hint})` : ""}\n`);
+      else throw e;
     }
-    io.out("Ollama models (use as --model ollama:<name>):\n");
-    for (const m of models) {
-      const tools = m.supportsTools ? "tools" : "no tools";
-      const ctx = m.contextWindow ? `${Math.round(m.contextWindow / 1024)}k max context` : "";
-      io.out(`  ${m.id.padEnd(32)} ${tools.padEnd(9)} ${ctx}\n`);
-    }
-    return 0;
-  } catch (e) {
-    if (e instanceof ProviderError) {
-      io.err(`teh: ${e.message}\n${e.hint ? `  fix: ${e.hint}\n` : ""}`);
-      return 1;
-    }
-    throw e;
   }
+  if (!shown)
+    io.out(
+      "No models found. Install Ollama and pull a model, set ANTHROPIC_API_KEY or OPENAI_API_KEY, or run `teh login chatgpt`.\n",
+    );
+  return 0;
+}
+
+// The model to use with no pin and no local model, by the credentials present.
+function defaultCloudModel(env: Record<string, string | undefined>): string | undefined {
+  if (env.ANTHROPIC_API_KEY) return "anthropic:claude-opus-5-5";
+  return undefined;
+}
+
+// The explore role's default on a cloud route: the cheapest capable model on the same route
+// (ADR-0014 "fast").
+function defaultExploreModel(provider: string): string | undefined {
+  if (provider === "anthropic") return "anthropic:claude-haiku-5-5";
+  return undefined;
+}
+
+function costOf(provider: Provider, model: string, usage: Usage): number | undefined {
+  return costUsd(provider.route, capabilities(provider.id, model), usage);
 }
 
 // Plain text: the answer streams to stdout; tool activity goes to stderr.
@@ -882,6 +950,16 @@ async function localModels(makeProvider: (name: string) => Provider, known?: Mod
   } catch {
     return [];
   }
+}
+
+// Cloud models the Config tab offers: the newest few the registry knows for each provider
+// the user has credentials for.
+function cloudModels(env: Record<string, string | undefined>, settings: ProviderSettings): string[] {
+  return configuredCloudProviders(env, settings).flatMap((p) =>
+    knownModels(p)
+      .slice(0, 6)
+      .map((m) => `${p}:${m.id}`),
+  );
 }
 
 // Checkpoint pruning rewrites history and runs git gc, so it runs at most once a day.

@@ -8,9 +8,12 @@ import {
   type AgentResult,
   AUTO_COMPACT_FRACTION,
   addUsage,
+  capabilities,
+  costUsd,
   describeShell,
   emptyUsage,
   expandSkill,
+  formatUsd,
   type HookRunner,
   type Item,
   latestTodos,
@@ -18,10 +21,13 @@ import {
   type PermissionConfig,
   type PermissionMode,
   type PlanDecision,
+  type Provider,
   ProviderError,
   parseRules,
   parseSlash,
   parseTodos,
+  ROUTE_LABEL,
+  routeOf,
   runAgent,
   runCompaction,
   type SessionLog,
@@ -30,6 +36,7 @@ import {
   similarNames,
   suggestRule,
   type Todo,
+  USAGE_URL,
   type Usage,
 } from "@everything-harness/core";
 import { Editor } from "./editor";
@@ -167,6 +174,7 @@ export class TuiApp {
   private partial = ""; // streaming assistant text not yet committed
   private textStarted = false;
   private usage: Usage = emptyUsage();
+  private cost: number | undefined = 0; // dollars, undefined once a price was unknown
   private lastInput = 0; // input tokens of the latest turn: the context in use
   private note = ""; // one-line message under the prompt, cleared on the next key
   private exitArmed = false;
@@ -560,6 +568,7 @@ export class TuiApp {
     return {
       status: [
         ["Model", `${this.modelLabel}${this.opts.pickModel ? " · chosen by teh" : ""}`],
+        ["Paid by", ROUTE_LABEL[this.agent.provider.route]],
         ["Folder", this.agent.cwd],
         ["Session", `${this.session.id.slice(0, 13)} · ${this.countPrompts()} prompt(s) · continue with teh -c`],
         ["Permission mode", this.permissions.mode],
@@ -571,6 +580,7 @@ export class TuiApp {
         ...(bar ? [`          ${bar}`] : []),
         "",
         `${s.bold("Tokens")}    ${fmt(u.input)} in (${fmt(u.cachedRead)} from cache) · ${fmt(u.output)} out`,
+        `${s.bold("Cost")}      ${this.costLine()}`,
         `${s.bold("Session")}   ${this.countPrompts()} prompt(s) · open ${mins} min`,
       ],
       help: [
@@ -594,6 +604,27 @@ export class TuiApp {
 
   // /btw: one question answered from the conversation so far, with no tools. Neither the
   // question nor the answer joins the conversation, so the main task's context is untouched.
+  // ADR-0009: the status line says who pays. The ChatGPT plan uses OpenAI's wording.
+  private routeNote(): string {
+    const route = this.agent.provider.route;
+    return route === "chatgpt-plan" ? " · Using ChatGPT plan" : route === "api-key" ? " · API key" : "";
+  }
+
+  private costLine(): string {
+    const route = this.agent.provider.route;
+    if (route === "local") return "$0 (local model)";
+    if (route === "chatgpt-plan") return `included in your ChatGPT plan · Manage usage: ${USAGE_URL}`;
+    return this.cost === undefined
+      ? "unknown (no price for this model)"
+      : `${formatUsd(this.cost)} (API key, list prices)`;
+  }
+
+  // Adds a usage total to the session's cost, priced for the model that ran it (ADR-0002).
+  private charge(u: Usage, provider = this.agent.provider, model = this.agent.model) {
+    const c = costUsd(provider.route, capabilities(provider.id, model), u);
+    this.cost = c === undefined || this.cost === undefined ? undefined : this.cost + c;
+  }
+
   private async btw(question: string) {
     const s = this.style;
     if (!question.trim()) {
@@ -609,7 +640,10 @@ export class TuiApp {
       const items: Item[] = [...this.history, { kind: "text", role: "user", text: question }];
       for await (const ev of provider.stream({ model, system: BTW_SYSTEM, items, tools: [] })) {
         if (ev.type === "text_delta") answer += ev.text;
-        else if (ev.type === "usage") this.usage = addUsage(this.usage, ev.usage);
+        else if (ev.type === "usage") {
+          this.usage = addUsage(this.usage, ev.usage);
+          this.charge(ev.usage, provider, model);
+        }
       }
     } catch (e) {
       failed = (e as Error).message;
@@ -747,6 +781,7 @@ export class TuiApp {
         this.renderer.reset?.();
         this.shownLines = [];
         this.usage = emptyUsage();
+        this.cost = 0;
         this.lastInput = 0;
         this.tokenScale = 1;
         this.print(["", s.dim("  (new conversation)"), ""]);
@@ -939,6 +974,11 @@ export class TuiApp {
         else {
           this.explore = undefined;
           this.usage = addUsage(this.usage, e.usage);
+          const at = e.model.indexOf(":");
+          if (at > 0) {
+            const id = e.model.slice(0, at);
+            this.charge(e.usage, { id, route: routeOf(id) } as Provider, e.model.slice(at + 1));
+          }
         }
         break;
       case "tool_result":
@@ -965,6 +1005,7 @@ export class TuiApp {
         } else {
           this.compacting = false;
           this.usage = addUsage(this.usage, e.usage);
+          this.charge(e.usage);
           this.lastInput = e.after;
           const why = e.trigger === "auto" ? "the context was nearly full" : "you asked";
           this.print([
@@ -979,6 +1020,7 @@ export class TuiApp {
         break;
       case "turn_end":
         this.usage = addUsage(this.usage, e.usage);
+        this.charge(e.usage);
         if (e.usage.input) this.lastInput = e.usage.input + e.usage.cachedRead + e.usage.output;
         break;
       default:
@@ -1121,7 +1163,7 @@ export class TuiApp {
         : ` · ${fmt(this.lastInput)} context`;
     const running = this.shells.running;
     const shells = running ? ` · ${running} shell${running === 1 ? "" : "s"} running` : "";
-    const right = s.dim(`${this.modelLabel}${ctx}${shells}`);
+    const right = s.dim(`${this.modelLabel}${this.routeNote()}${ctx}${shells}`);
     const left = `  ${modeText}`;
     const gap = Math.max(2, cols - 1 - visible(left) - visible(right));
     return left + " ".repeat(gap) + right;
