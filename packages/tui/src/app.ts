@@ -86,6 +86,8 @@ export type TuiOptions = {
   // Set when no model is pinned (ADR-0014): called with the first prompt of each session to
   // choose the model for it. The choice then holds for the whole session.
   pickModel?: (prompt: string, planMode: boolean) => Promise<ModelPick>;
+  // Called after each prompt's run, for the cost ledger and trace export.
+  onRunEnd?: (r: { usage: Usage; provider: AgentOptions["provider"]; model: string; session: string }) => void;
   // Animate the spinner. Off in tests, where output must be deterministic.
   animate?: boolean;
   escapeDelayMs?: number;
@@ -877,6 +879,12 @@ export class TuiApp {
           : {}),
       });
       this.flushText();
+      this.opts.onRunEnd?.({
+        usage: res.usage,
+        provider: this.agent.provider,
+        model: this.agent.model,
+        session: this.session.id,
+      });
       this.history = res.items;
       this.tokenScale = res.tokenScale;
       if (res.stopReason === "max_turns") this.print([s.yellow(`  stopped after ${res.turns} turns`)]);

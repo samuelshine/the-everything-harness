@@ -28,6 +28,7 @@ import { formatTodos, latestTodos } from "./tools/todo";
 import type { Access, Tool, ToolContext, ToolResult } from "./tools/tool";
 import { ToolInputError } from "./tools/tool";
 import { type SearchEngine, WEB_HELPER_BRIEF, type WebHelper } from "./tools/web";
+import { NOOP_TRACER, type Span, type Tracer } from "./tracing";
 import { addUsage, emptyUsage, type Image, type Item, ProviderError, type StopReason, type Usage } from "./types";
 
 export type AgentEvent =
@@ -112,6 +113,8 @@ export type AgentOptions = {
   vision?: boolean;
   // Asks the user to approve a plan from ExitPlanMode; absent in headless runs (ADR-0022).
   reviewPlan?: PlanReviewer;
+  // OpenTelemetry GenAI spans for this run (off unless configured; no content is recorded).
+  tracer?: Tracer;
 };
 
 // Marks text teh itself adds to the conversation, as opposed to the user's or a hook's.
@@ -128,7 +131,37 @@ export type AgentResult = {
   tokenScale: number;
 };
 
+// The OpenTelemetry GenAI name for a provider id.
+const OTEL_PROVIDER: Record<string, string> = { anthropic: "anthropic", openai: "openai", chatgpt: "openai" };
+
 export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
+  const tracer = opts.tracer ?? NOOP_TRACER;
+  const root = tracer.start("invoke_agent teh", {
+    "gen_ai.operation.name": "invoke_agent",
+    "gen_ai.agent.name": "teh",
+    "gen_ai.provider.name": OTEL_PROVIDER[opts.provider.id] ?? opts.provider.id,
+    "gen_ai.request.model": opts.model,
+    "gen_ai.conversation.id": opts.session?.id,
+    "teh.permission_mode": opts.permissions.mode,
+    "teh.auth_route": opts.provider.route,
+  });
+  try {
+    const r = await runAgentTraced(opts, tracer, root);
+    root.set({
+      "gen_ai.usage.input_tokens": r.usage.input + r.usage.cachedRead + r.usage.cacheWrite,
+      "gen_ai.usage.output_tokens": r.usage.output,
+      "teh.stop_reason": r.stopReason,
+      "teh.turns": r.turns,
+    });
+    root.end(r.stopReason === "error" ? "error" : undefined);
+    return r;
+  } catch (e) {
+    root.end((e as { kind?: string }).kind ?? (e as Error).name ?? "error");
+    throw e;
+  }
+}
+
+async function runAgentTraced(opts: AgentOptions, tracer: Tracer, root: Span): Promise<AgentResult> {
   const emit = opts.onEvent ?? (() => {});
   const projectRoot = findProjectRoot(opts.cwd);
   const instructions = loadInstructions(
@@ -360,6 +393,16 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
     for (let attempt = 0; ; attempt++) {
       let started = false;
       sentEstimate = estimateTokens({ system, items, tools: specs });
+      const chat = tracer.start(
+        `chat ${opts.model}`,
+        {
+          "gen_ai.operation.name": "chat",
+          "gen_ai.provider.name": OTEL_PROVIDER[opts.provider.id] ?? opts.provider.id,
+          "gen_ai.request.model": opts.model,
+        },
+        root,
+        "client",
+      );
       try {
         for await (const ev of opts.provider.stream({ model: opts.model, system, items, tools: specs }, opts.signal)) {
           started = true;
@@ -386,8 +429,17 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
           } else if (ev.type === "usage") turnUsage = addUsage(turnUsage, ev.usage);
           else stop = ev.reason;
         }
+        chat.set({
+          "gen_ai.usage.input_tokens": turnUsage.input + turnUsage.cachedRead + turnUsage.cacheWrite,
+          "gen_ai.usage.output_tokens": turnUsage.output,
+          "gen_ai.usage.cache_read.input_tokens": turnUsage.cachedRead,
+          "gen_ai.response.finish_reasons": [stop],
+        });
+        chat.end();
         break;
       } catch (e) {
+        chat.set({ "error.type": (e as { kind?: string }).kind ?? (e as Error).name });
+        chat.end((e as Error).message);
         const tooLong = e instanceof ProviderError && e.kind === "context_exceeded";
         if (!tooLong || started || attempt > 0 || opts.autoCompact === false || !(await compactNow(0))) throw e;
         ordered = [];
@@ -442,10 +494,17 @@ export async function runAgent(opts: AgentOptions): Promise<AgentResult> {
       // After a hook stops the run, the remaining calls still get a result, so the
       // conversation stays valid if it is resumed.
       taskCall = call.id;
+      const toolSpan = tracer.start(
+        `execute_tool ${call.name}`,
+        { "gen_ai.operation.name": "execute_tool", "gen_ai.tool.name": call.name, "gen_ai.tool.call.id": call.id },
+        root,
+      );
       const r = halted
         ? { content: `Not run: ${halted}`, isError: true }
         : await runTool(call, byName, opts, permissions(), ctx, emit, beforeChange, report);
       const { changed, halt, ...outcome } = r as Awaited<ReturnType<typeof runTool>>;
+      if (outcome.isError) toolSpan.set({ "error.type": halted ? "not_run" : "tool_error" });
+      toolSpan.end(outcome.isError ? "tool_error" : undefined);
       if (changed) step.changes.push(changed);
       if (halt) halted = halt;
       const item: Item = { kind: "tool_result", callId: call.id, name: call.name, ...outcome };

@@ -25,6 +25,7 @@ import {
   findProjectRoot,
   findSession,
   findStyle,
+  formatUsd,
   HookRunner,
   isTrusted,
   knownModels,
@@ -50,6 +51,8 @@ import {
   ROUTER_MODES,
   type RouteResult,
   type RouterMode,
+  readLedger,
+  recordUsage,
   routeOf,
   runAgent,
   SessionLog,
@@ -60,8 +63,10 @@ import {
   setUserSetting,
   similarNames,
   splitRuleList,
+  summarise,
   TranscriptCache,
   tehHome,
+  tracerFromEnv,
   triage,
   type Usage,
   VERSION,
@@ -140,6 +145,7 @@ Options:
 
 Commands:
   models                        List models from Ollama and every configured provider
+  usage [--days n]              Tokens and cost of past runs by day and model (default 30 days)
   login chatgpt                 Continue with ChatGPT: use your ChatGPT plan (opens a browser)
   logout chatgpt                Sign out of ChatGPT and revoke the sign-in
   rewind [point]                Go back to any step of the latest session: lists titled points,
@@ -189,6 +195,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     return 0;
   }
   if (positionals[0] === "models") return listModels(io, makeProvider, providerSettings());
+  if (positionals[0] === "usage") return printUsage(io, tehHome(io.env), Number(v.days ?? 30));
   if (positionals[0] === "login") return login(io, positionals[1], tehHome(io.env));
   if (positionals[0] === "logout") return logout(io, positionals[1], tehHome(io.env));
   if (positionals[0] === "checkpoints") return listCheckpoints(io);
@@ -382,6 +389,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   }
 
   const mcpPlan = planMcp(io, v["mcp-config"] ?? [], v["strict-mcp-config"] ?? false);
+  // OpenTelemetry GenAI spans, when a collector or TEH_TRACE_FILE is configured.
+  const tracer = tracerFromEnv(io.env);
   for (const w of mcpPlan.warnings) io.err(`teh: warning: ${w}\n`);
 
   const started = performance.now();
@@ -531,6 +540,18 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
           ...(startSettings.autoCompact === false ? { autoCompact: false } : {}),
           ...(webSearch ? { webSearch } : {}),
           ...(probe.vision ? { vision: true } : {}),
+          ...(tracer ? { tracer } : {}),
+        },
+        onRunEnd: (r) => {
+          recordUsage(home, {
+            session: r.session,
+            cwd: dir,
+            provider: r.provider.id,
+            model: r.model,
+            route: r.provider.route,
+            usage: r.usage,
+          });
+          void tracer?.flush();
         },
         modelLabel: modelSpec,
         session,
@@ -589,9 +610,19 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       ...(startSettings.autoCompact === false ? { autoCompact: false } : {}),
       ...(probe.vision ? { vision: true } : {}),
       ...(webSearch ? { webSearch } : {}),
+      ...(tracer ? { tracer } : {}),
       checkpoint: async ({ first, title }) =>
         (await store.snapshot(first ? "turn" : "step", session.id, first ? prompt : title)).sha,
     });
+    recordUsage(home, {
+      session: session.id,
+      cwd: dir,
+      provider: provider.id,
+      model: ref.model,
+      route: provider.route,
+      usage: res.usage,
+    });
+    await tracer?.flush();
 
     if (hooks.has("SessionEnd")) {
       const end = await hooks.run({ hook_event_name: "SessionEnd", reason: "other" });
@@ -697,6 +728,7 @@ function parse(argv: string[]) {
       disallowedTools: { type: "string", multiple: true },
       "add-dir": { type: "string", multiple: true },
       "max-turns": { type: "string" },
+      days: { type: "string" },
       yes: { type: "boolean", short: "y" },
       continue: { type: "boolean", short: "c" },
       resume: { type: "string", short: "r" },
@@ -755,6 +787,39 @@ async function listModels(
     io.out(
       "No models found. Install Ollama and pull a model, set ANTHROPIC_API_KEY or OPENAI_API_KEY, or run `teh login chatgpt`.\n",
     );
+  return 0;
+}
+
+// `teh usage`: tokens and cost from the ledger, by day and by model.
+function printUsage(io: Io, home: string, days: number): number {
+  if (!Number.isFinite(days) || days < 1) return usageError(io, "--days must be a positive number");
+  const since = Date.now() - days * 24 * 60 * 60 * 1000;
+  const entries = readLedger(home).filter((e) => Date.parse(e.at) >= since);
+  if (!entries.length) {
+    io.out(`No usage recorded in the last ${days} days.\n`);
+    return 0;
+  }
+  const fmt = (n: number) =>
+    n >= 1e6 ? `${(n / 1e6).toFixed(1)}M` : n >= 1e3 ? `${(n / 1e3).toFixed(1)}k` : String(n);
+  const table = (title: string, rows: ReturnType<typeof summarise>) => {
+    io.out(`${title}\n`);
+    for (const r of rows) {
+      const tokens = `${fmt(r.usage.input + r.usage.cachedRead + r.usage.cacheWrite)} in (${fmt(r.usage.cachedRead)} cached) · ${fmt(r.usage.output)} out`;
+      const cost = r.unpriced ? `${formatUsd(r.costUsd)} + ${r.unpriced} unpriced` : formatUsd(r.costUsd);
+      io.out(`  ${r.key.padEnd(40)} ${String(r.runs).padStart(5)} runs  ${tokens.padEnd(36)} ${cost}\n`);
+    }
+    io.out("\n");
+  };
+  table(
+    `By day (last ${days} days):`,
+    summarise(entries, (e) => e.at.slice(0, 10)).sort((a, b) => b.key.localeCompare(a.key)),
+  );
+  table(
+    "By model:",
+    summarise(entries, (e) => `${e.provider}:${e.model}`).sort((a, b) => (b.costUsd ?? 0) - (a.costUsd ?? 0)),
+  );
+  const total = entries.reduce((n, e) => n + (e.costUsd ?? 0), 0);
+  io.out(`Total: ${formatUsd(total)} at list prices for API-key use; local models and the ChatGPT plan count as $0.\n`);
   return 0;
 }
 

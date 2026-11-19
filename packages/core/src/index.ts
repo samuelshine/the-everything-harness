@@ -1,6 +1,5 @@
 // Engine: loop, sessions, tools, permissions, context, providers.
 // Every client (CLI, TUI, ACP, server) talks to the engine through this package.
-export const VERSION = "0.0.0";
 
 export * from "./agent";
 export * from "./auth/chatgpt";
@@ -10,6 +9,7 @@ export * from "./checkpoints";
 export * from "./compact";
 export * from "./hooks";
 export * from "./instructions";
+export * from "./ledger";
 export * from "./mcp";
 export * from "./modelpolicy";
 export * from "./permissions";
@@ -31,4 +31,6 @@ export * from "./shell";
 export * from "./skills";
 export * from "./styles";
 export * from "./tools";
+export * from "./tracing";
 export * from "./types";
+export { VERSION } from "./version";

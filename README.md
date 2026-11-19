@@ -49,6 +49,7 @@ packages/cli/dist/teh -p --model ollama:gemma4:e4b "What does this repo do?"
 - [Interactive use](docs/usage/interactive.md): the terminal UI, model choice, trust, modes, the settings panel, tools and subagents.
 - [Permissions and the sandbox](docs/usage/permissions-and-sandbox.md): what runs without asking, rules, trust and the OS sandbox.
 - [Extensions](docs/usage/extensions.md): output styles, hooks, MCP servers, skills and commands.
+- [Cost and tracing](docs/usage/cost-and-tracing.md): `teh usage`, and OpenTelemetry traces to your own collector.
 - [Sessions, rewind and checkpoints](docs/usage/sessions-and-checkpoints.md): continuing, rewinding and undoing, plus other flags.
 
 ## Contributing
