@@ -13,8 +13,18 @@ Hooks run your own commands at fixed points in the loop, in Claude Code's format
 ```json
 {"hooks": {"PostToolUse": [{"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "npx eslint --fix \"$CLAUDE_PROJECT_DIR\""}]}]}}
 ```
-- **Events:** `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`, `SessionEnd`. The hook gets the event as JSON on stdin.
+- **Events:** `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`, `SessionEnd`, `Notification`, `PreCompact`, and `SubagentStop` (an explore subagent is about to finish). The hook gets the event as JSON on stdin.
 - **Blocking:** exit code 2 blocks the action, and stderr tells the model (or you, for a prompt) why. A `Stop` hook that exits 2 sends the model back to work.
+- **Hook types:** a hook is a `command` (above), an `http` POST, or a `prompt` answered by a model.
+  ```json
+  {"hooks": {"PostToolUse": [{"matcher": "Write", "hooks": [{"type": "http", "url": "https://ci.example.com/hook", "headers": {"Authorization": "Bearer $CI_TOKEN"}, "allowedEnvVars": ["CI_TOKEN"], "timeout": 10}]}]}}
+  ```
+  An HTTP hook gets the event as the POST body and answers with the same JSON a command prints. Only a 2xx reply counts; any other result is a warning, not a block. Only variables in `allowedEnvVars` are filled into headers.
+  ```json
+  {"hooks": {"Stop": [{"hooks": [{"type": "prompt", "prompt": "Did the agent run the tests and report the result? $ARGUMENTS"}]}]}}
+  ```
+  A prompt hook asks a small, fast model (the explore model, else your main one; set `"model"` on the hook to choose) to answer `{"ok": true}` or `{"ok": false, "reason": "…"}`. Not ok blocks, and the reason goes to the model. Prompt hooks work on `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop` and `SubagentStop`.
+- **SubagentStop:** fires when an explore subagent finishes, with `agent_type`, `agent_id` and `last_assistant_message`. Blocking it gives the subagent one more turn with your reason. The parent's `Stop` hook does not fire for subagents.
 - **Permissions:** a `PreToolUse` hook can deny anything, even in `bypassPermissions` mode. Its `"allow"` skips the question but, unlike in Claude Code, never overrides a deny rule (ADR-0016).
 - **Trust:** a repo's own hooks run only after `teh trust`. `teh hooks` lists every hook and whether it runs here.
 

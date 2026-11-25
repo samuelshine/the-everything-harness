@@ -484,6 +484,31 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
     const denied: Denied[] = [];
     const text = textOutput(io, denied);
     const checkpoint = { taken: false };
+    // Prompt hooks (ADR-0016): a one-shot, tool-less call on the fast model (the explore model,
+    // ADR-0014), else the session's own; a hook's own `model` wins.
+    const judge = async (ask: string, hookModel: string | undefined, signal: AbortSignal) => {
+      const target = hookModel
+        ? (() => {
+            const r = parseModelRef(hookModel);
+            return { provider: makeProvider(r.provider), model: r.model };
+          })()
+        : (explore ?? { provider, model: ref.model });
+      let reply = "";
+      for await (const ev of target.provider.stream(
+        {
+          model: target.model,
+          system: "You check an event against a rule for a coding agent. Follow the answer format exactly.",
+          items: [{ kind: "text", role: "user", text: ask }],
+          tools: [],
+          temperature: 0,
+          maxOutputTokens: 400,
+        },
+        signal,
+      )) {
+        if (ev.type === "text_delta") reply += ev.text;
+      }
+      return reply;
+    };
     const hooks = new HookRunner({
       config: perms.hooks,
       cwd: io.cwd,
@@ -491,6 +516,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       sessionId: session.id,
       transcriptPath: session.path,
       env: io.env,
+      judge,
     });
     if (term) {
       const hooksFor = (s: SessionLog) =>
@@ -501,6 +527,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
           sessionId: s.id,
           transcriptPath: s.path,
           env: io.env,
+          judge,
         });
       const editExternal = externalEditor(io.env);
       const app: TuiApp = new TuiApp({
