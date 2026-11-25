@@ -1,6 +1,6 @@
 # Roadmap
 
-Where `teh` stands against the build order in [synthesis §4](research/00-synthesis.md#4-suggested-build-order), and what comes next. Milestones are worked in order; each lands as one or more PRs that link their ADR.
+Where `teh` stands against the build order in [synthesis §4](research/00-synthesis.md#4-suggested-build-order), and what comes next. Milestones are worked in order; each lands as one or more PRs that link their ADR. The task-level breakdown, and where work stopped, is in [TASKS.md](../TASKS.md).
 
 *Last updated: 2026-11-19.*
 
