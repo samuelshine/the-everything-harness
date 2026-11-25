@@ -44,3 +44,15 @@ Option 3.
 - **Branding:** we may say a feature "runs Claude Code" in plain text. We must not use Claude Code or Anthropic names or logos in our product name or UI chrome [LLM-11, LLM-12]. Sign-in uses OpenAI's approved "Continue with ChatGPT" button [LLM-16].
 - **Revisit when:** Anthropic offers a sanctioned third-party subscription route; OpenAI changes plan-usage eligibility or limits; we ship a hosted or paid version (that needs partner approval from both); or provider enforcement changes. Re-check the provider terms quarterly with the competitive watch list.
 - **Open question for implementation:** whether running the user's `claude` binary from our harness requires anything beyond the conditions quoted in [LLM-11] ("unmodified binary", "own credentials"). Confirm with Anthropic before a public release.
+
+## Implementation notes (2026-11-19)
+- **`teh login chatgpt`** follows OpenAI's open-source flow [LLM-15, LLM-16]:
+  - first sign-in with `client_id=dynamic_agent_client`, `agent_name_hint="The Everything Harness"` and a per-install `ext_agent_host_id` (`urn:uuid:…` in `~/.teh/host-id`);
+  - PKCE S256 with a loopback redirect on `127.0.0.1:1455/auth/callback` (any free port if that one is busy);
+  - the issued `oaiapp_` client is saved and reused, with `id_token_hint` and `login_hint` on later sign-ins.
+- **Checks before anything is stored:** `state`; the ID token's signature against the published JWKS, plus issuer, audience, expiry and nonce; and that `chatgpt.tokens.use.direct` was granted. Without that scope the sign-in is kept but plan usage stays off.
+- **Storage:** the account (client id, email, subject) in `~/.teh/auth/chatgpt.json`. Tokens go in the macOS keychain, the Linux Secret Service, or a 0600 file. On macOS the token passes through `security`'s argv briefly, since it reads stdin only from a terminal.
+- **Refresh:** two minutes before expiry, serialised across processes with a lock directory, since each refresh rotates the refresh token. Terminal refresh errors clear the tokens and ask for a new sign-in. `teh logout chatgpt` revokes through the discovery document's `revocation_endpoint`.
+- **Branding and honesty:** "Continue with ChatGPT" starts the sign-in; the first-use notice and the status line use OpenAI's wording ("Using ChatGPT plan", "Manage usage"). Usage-limit errors stop the run; nothing switches billing silently.
+- **Test for rule 4:** `packages/core/test/providers.test.ts` fails if engine code names `.credentials.json` or `~/.codex` outside the sandbox's deny list.
+- **Claude Code delegation** (rule 3) is part of the delegation milestone (ADR-0007).

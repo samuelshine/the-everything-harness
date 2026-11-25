@@ -1,0 +1,825 @@
+{
+  "source": "https://models.dev/api.json",
+  "taken": "2026-11-19",
+  "models": {
+    "anthropic:claude-fable-5": {
+      "context": 1000000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-06-07",
+      "cost": {
+        "input": 10,
+        "output": 50,
+        "cacheRead": 1,
+        "cacheWrite": 12.5
+      }
+    },
+    "anthropic:claude-fable-5-1": {
+      "context": 1000000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-09-01",
+      "cost": {
+        "input": 10,
+        "output": 50,
+        "cacheRead": 0.25,
+        "cacheWrite": 12.5
+      }
+    },
+    "anthropic:claude-fable-5-2": {
+      "context": 1000000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-11-09",
+      "cost": {
+        "input": 8,
+        "output": 40,
+        "cacheRead": 0.2,
+        "cacheWrite": 10
+      }
+    },
+    "anthropic:claude-haiku-4-5": {
+      "context": 200000,
+      "output": 64000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-10-15",
+      "cost": {
+        "input": 1,
+        "output": 5,
+        "cacheRead": 0.1,
+        "cacheWrite": 1.25
+      }
+    },
+    "anthropic:claude-haiku-4-5-20251001": {
+      "context": 200000,
+      "output": 64000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-10-15",
+      "cost": {
+        "input": 1,
+        "output": 5,
+        "cacheRead": 0.1,
+        "cacheWrite": 1.25
+      }
+    },
+    "anthropic:claude-haiku-5-5": {
+      "context": 1000000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-10-07",
+      "cost": {
+        "input": 0.1,
+        "output": 0.5,
+        "cacheRead": 0.01,
+        "cacheWrite": 0.125
+      }
+    },
+    "anthropic:claude-opus-4-5": {
+      "context": 200000,
+      "output": 64000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-11-24",
+      "cost": {
+        "input": 5,
+        "output": 25,
+        "cacheRead": 0.5,
+        "cacheWrite": 6.25
+      }
+    },
+    "anthropic:claude-opus-4-5-20251101": {
+      "context": 200000,
+      "output": 64000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-11-24",
+      "cost": {
+        "input": 5,
+        "output": 25,
+        "cacheRead": 0.5,
+        "cacheWrite": 6.25
+      }
+    },
+    "anthropic:claude-opus-4-6": {
+      "context": 1000000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-02-04",
+      "cost": {
+        "input": 5,
+        "output": 25,
+        "cacheRead": 0.5,
+        "cacheWrite": 6.25
+      }
+    },
+    "anthropic:claude-opus-4-7": {
+      "context": 1000000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-04-14",
+      "cost": {
+        "input": 5,
+        "output": 25,
+        "cacheRead": 0.5,
+        "cacheWrite": 6.25
+      }
+    },
+    "anthropic:claude-opus-4-8": {
+      "context": 1000000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-05-28",
+      "cost": {
+        "input": 5,
+        "output": 25,
+        "cacheRead": 0.5,
+        "cacheWrite": 6.25
+      }
+    },
+    "anthropic:claude-opus-5": {
+      "context": 1000000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-07-24",
+      "cost": {
+        "input": 5,
+        "output": 25,
+        "cacheRead": 0.5,
+        "cacheWrite": 6.25
+      }
+    },
+    "anthropic:claude-opus-5-5": {
+      "context": 1000000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-09-22",
+      "cost": {
+        "input": 4,
+        "output": 20,
+        "cacheRead": 0.2,
+        "cacheWrite": 5
+      }
+    },
+    "anthropic:claude-sonnet-4-5": {
+      "context": 200000,
+      "output": 64000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-09-29",
+      "cost": {
+        "input": 3,
+        "output": 15,
+        "cacheRead": 0.3,
+        "cacheWrite": 3.75
+      }
+    },
+    "anthropic:claude-sonnet-4-5-20250929": {
+      "context": 200000,
+      "output": 64000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-09-29",
+      "cost": {
+        "input": 3,
+        "output": 15,
+        "cacheRead": 0.3,
+        "cacheWrite": 3.75
+      }
+    },
+    "anthropic:claude-sonnet-4-6": {
+      "context": 1000000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-02-17",
+      "cost": {
+        "input": 3,
+        "output": 15,
+        "cacheRead": 0.3,
+        "cacheWrite": 3.75
+      }
+    },
+    "anthropic:claude-sonnet-5": {
+      "context": 1000000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-06-29",
+      "cost": {
+        "input": 2,
+        "output": 10,
+        "cacheRead": 0.2,
+        "cacheWrite": 2.5
+      }
+    },
+    "anthropic:claude-sonnet-5-5": {
+      "context": 1000000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-09-28",
+      "cost": {
+        "input": 2,
+        "output": 10,
+        "cacheRead": 0.1,
+        "cacheWrite": 2.5
+      }
+    },
+    "openai:gpt-4": {
+      "context": 8192,
+      "output": 8192,
+      "vision": false,
+      "reasoning": false,
+      "released": "2023-11-06",
+      "cost": {
+        "input": 30,
+        "output": 60,
+        "cacheRead": 30,
+        "cacheWrite": 30
+      }
+    },
+    "openai:gpt-4-turbo": {
+      "context": 128000,
+      "output": 4096,
+      "vision": true,
+      "reasoning": false,
+      "released": "2023-11-06",
+      "cost": {
+        "input": 10,
+        "output": 30,
+        "cacheRead": 10,
+        "cacheWrite": 10
+      }
+    },
+    "openai:gpt-4.1": {
+      "context": 1047576,
+      "output": 32768,
+      "vision": true,
+      "reasoning": false,
+      "released": "2025-04-14",
+      "cost": {
+        "input": 2,
+        "output": 8,
+        "cacheRead": 0.5,
+        "cacheWrite": 2
+      }
+    },
+    "openai:gpt-4.1-mini": {
+      "context": 1047576,
+      "output": 32768,
+      "vision": true,
+      "reasoning": false,
+      "released": "2025-04-14",
+      "cost": {
+        "input": 0.4,
+        "output": 1.6,
+        "cacheRead": 0.1,
+        "cacheWrite": 0.4
+      }
+    },
+    "openai:gpt-4.1-nano": {
+      "context": 1047576,
+      "output": 32768,
+      "vision": true,
+      "reasoning": false,
+      "released": "2025-04-14",
+      "cost": {
+        "input": 0.1,
+        "output": 0.4,
+        "cacheRead": 0.025,
+        "cacheWrite": 0.1
+      }
+    },
+    "openai:gpt-4o": {
+      "context": 128000,
+      "output": 16384,
+      "vision": true,
+      "reasoning": false,
+      "released": "2024-05-13",
+      "cost": {
+        "input": 2.5,
+        "output": 10,
+        "cacheRead": 1.25,
+        "cacheWrite": 2.5
+      }
+    },
+    "openai:gpt-4o-2024-05-13": {
+      "context": 128000,
+      "output": 4096,
+      "vision": true,
+      "reasoning": false,
+      "released": "2024-05-13",
+      "cost": {
+        "input": 5,
+        "output": 15,
+        "cacheRead": 5,
+        "cacheWrite": 5
+      }
+    },
+    "openai:gpt-4o-2024-08-06": {
+      "context": 128000,
+      "output": 16384,
+      "vision": true,
+      "reasoning": false,
+      "released": "2024-08-06",
+      "cost": {
+        "input": 2.5,
+        "output": 10,
+        "cacheRead": 1.25,
+        "cacheWrite": 2.5
+      }
+    },
+    "openai:gpt-4o-2024-11-20": {
+      "context": 128000,
+      "output": 16384,
+      "vision": true,
+      "reasoning": false,
+      "released": "2024-11-20",
+      "cost": {
+        "input": 2.5,
+        "output": 10,
+        "cacheRead": 1.25,
+        "cacheWrite": 2.5
+      }
+    },
+    "openai:gpt-4o-mini": {
+      "context": 128000,
+      "output": 16384,
+      "vision": true,
+      "reasoning": false,
+      "released": "2024-07-18",
+      "cost": {
+        "input": 0.15,
+        "output": 0.6,
+        "cacheRead": 0.075,
+        "cacheWrite": 0.15
+      }
+    },
+    "openai:gpt-5": {
+      "context": 272000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-08-07",
+      "cost": {
+        "input": 1.25,
+        "output": 10,
+        "cacheRead": 0.125,
+        "cacheWrite": 1.25
+      }
+    },
+    "openai:gpt-5-mini": {
+      "context": 272000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-08-07",
+      "cost": {
+        "input": 0.25,
+        "output": 2,
+        "cacheRead": 0.025,
+        "cacheWrite": 0.25
+      }
+    },
+    "openai:gpt-5-nano": {
+      "context": 272000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-08-07",
+      "cost": {
+        "input": 0.05,
+        "output": 0.4,
+        "cacheRead": 0.005,
+        "cacheWrite": 0.05
+      }
+    },
+    "openai:gpt-5-pro": {
+      "context": 272000,
+      "output": 272000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-10-06",
+      "cost": {
+        "input": 15,
+        "output": 120,
+        "cacheRead": 15,
+        "cacheWrite": 15
+      }
+    },
+    "openai:gpt-5.1": {
+      "context": 272000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-11-13",
+      "cost": {
+        "input": 1.25,
+        "output": 10,
+        "cacheRead": 0.125,
+        "cacheWrite": 1.25
+      }
+    },
+    "openai:gpt-5.2": {
+      "context": 272000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-12-11",
+      "cost": {
+        "input": 1.75,
+        "output": 14,
+        "cacheRead": 0.175,
+        "cacheWrite": 1.75
+      }
+    },
+    "openai:gpt-5.2-pro": {
+      "context": 272000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-12-11",
+      "cost": {
+        "input": 21,
+        "output": 168,
+        "cacheRead": 21,
+        "cacheWrite": 21
+      }
+    },
+    "openai:gpt-5.3-codex": {
+      "context": 272000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-02-05",
+      "cost": {
+        "input": 1.75,
+        "output": 14,
+        "cacheRead": 0.175,
+        "cacheWrite": 1.75
+      }
+    },
+    "openai:gpt-5.3-codex-spark": {
+      "context": 100000,
+      "output": 32000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-02-05",
+      "cost": {
+        "input": 1.75,
+        "output": 14,
+        "cacheRead": 0.175,
+        "cacheWrite": 1.75
+      }
+    },
+    "openai:gpt-5.4": {
+      "context": 922000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-03-05",
+      "cost": {
+        "input": 2.5,
+        "output": 15,
+        "cacheRead": 0.25,
+        "cacheWrite": 2.5
+      }
+    },
+    "openai:gpt-5.4-mini": {
+      "context": 272000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-03-17",
+      "cost": {
+        "input": 0.75,
+        "output": 4.5,
+        "cacheRead": 0.075,
+        "cacheWrite": 0.75
+      }
+    },
+    "openai:gpt-5.4-nano": {
+      "context": 272000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-03-17",
+      "cost": {
+        "input": 0.2,
+        "output": 1.25,
+        "cacheRead": 0.02,
+        "cacheWrite": 0.2
+      }
+    },
+    "openai:gpt-5.4-pro": {
+      "context": 922000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-03-05",
+      "cost": {
+        "input": 30,
+        "output": 180,
+        "cacheRead": 30,
+        "cacheWrite": 30
+      }
+    },
+    "openai:gpt-5.5": {
+      "context": 922000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-04-23",
+      "cost": {
+        "input": 5,
+        "output": 30,
+        "cacheRead": 0.5,
+        "cacheWrite": 5
+      }
+    },
+    "openai:gpt-5.5-pro": {
+      "context": 922000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-04-23",
+      "cost": {
+        "input": 30,
+        "output": 180,
+        "cacheRead": 30,
+        "cacheWrite": 30
+      }
+    },
+    "openai:gpt-5.6": {
+      "context": 922000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-07-09",
+      "cost": {
+        "input": 4,
+        "output": 20,
+        "cacheRead": 0.4,
+        "cacheWrite": 5
+      }
+    },
+    "openai:gpt-5.6-luna": {
+      "context": 922000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-07-09",
+      "cost": {
+        "input": 0.2,
+        "output": 1.2,
+        "cacheRead": 0.02,
+        "cacheWrite": 0.25
+      }
+    },
+    "openai:gpt-5.6-sol": {
+      "context": 922000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-07-09",
+      "cost": {
+        "input": 4,
+        "output": 20,
+        "cacheRead": 0.4,
+        "cacheWrite": 5
+      }
+    },
+    "openai:gpt-5.6-terra": {
+      "context": 922000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-07-09",
+      "cost": {
+        "input": 2,
+        "output": 12,
+        "cacheRead": 0.2,
+        "cacheWrite": 2.5
+      }
+    },
+    "openai:gpt-6-astra": {
+      "context": 922000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-09-04",
+      "cost": {
+        "input": 10,
+        "output": 50,
+        "cacheRead": 1,
+        "cacheWrite": 12.5
+      }
+    },
+    "openai:gpt-6-luna": {
+      "context": 922000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-09-22",
+      "cost": {
+        "input": 0.1,
+        "output": 0.5,
+        "cacheRead": 0.01,
+        "cacheWrite": 0.125
+      }
+    },
+    "openai:gpt-6-sol": {
+      "context": 922000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-09-22",
+      "cost": {
+        "input": 2,
+        "output": 10,
+        "cacheRead": 0.2,
+        "cacheWrite": 2.5
+      }
+    },
+    "openai:gpt-6.1-sol": {
+      "context": 922000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-09-29",
+      "cost": {
+        "input": 2,
+        "output": 10,
+        "cacheRead": 0.1,
+        "cacheWrite": 2.5
+      }
+    },
+    "openai:gpt-6.1-terra": {
+      "context": 922000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-10-26",
+      "cost": {
+        "input": 1,
+        "output": 5,
+        "cacheRead": 0.05,
+        "cacheWrite": 1.25
+      }
+    },
+    "openai:gpt-6.2-astra": {
+      "context": 922000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-11-17",
+      "cost": {
+        "input": 8,
+        "output": 40,
+        "cacheRead": 0.4,
+        "cacheWrite": 10
+      }
+    },
+    "openai:gpt-6.2-sol": {
+      "context": 922000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-11-17",
+      "cost": {
+        "input": 2,
+        "output": 10,
+        "cacheRead": 0.1,
+        "cacheWrite": 2.5
+      }
+    },
+    "openai:gpt-daybreak-blue-latest": {
+      "context": 922000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-08-07",
+      "cost": {
+        "input": 4,
+        "output": 20,
+        "cacheRead": 0.4,
+        "cacheWrite": 5
+      }
+    },
+    "openai:gpt-daybreak-red-latest": {
+      "context": 272000,
+      "output": 128000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-08-07",
+      "cost": {
+        "input": 12.5,
+        "output": 75,
+        "cacheRead": 1.25,
+        "cacheWrite": 15.625
+      }
+    },
+    "openai:gpt-realtime-2.1": {
+      "context": 96000,
+      "output": 32000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2026-07-06",
+      "cost": {
+        "input": 4,
+        "output": 24,
+        "cacheRead": 0.4,
+        "cacheWrite": 4
+      }
+    },
+    "openai:o1": {
+      "context": 200000,
+      "output": 100000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2024-12-05",
+      "cost": {
+        "input": 15,
+        "output": 60,
+        "cacheRead": 7.5,
+        "cacheWrite": 15
+      }
+    },
+    "openai:o1-pro": {
+      "context": 200000,
+      "output": 100000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-03-19",
+      "cost": {
+        "input": 150,
+        "output": 600,
+        "cacheRead": 150,
+        "cacheWrite": 150
+      }
+    },
+    "openai:o3": {
+      "context": 200000,
+      "output": 100000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-04-16",
+      "cost": {
+        "input": 2,
+        "output": 8,
+        "cacheRead": 0.5,
+        "cacheWrite": 2
+      }
+    },
+    "openai:o3-mini": {
+      "context": 200000,
+      "output": 100000,
+      "vision": false,
+      "reasoning": true,
+      "released": "2024-12-20",
+      "cost": {
+        "input": 1.1,
+        "output": 4.4,
+        "cacheRead": 0.55,
+        "cacheWrite": 1.1
+      }
+    },
+    "openai:o3-pro": {
+      "context": 200000,
+      "output": 100000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-06-10",
+      "cost": {
+        "input": 20,
+        "output": 80,
+        "cacheRead": 20,
+        "cacheWrite": 20
+      }
+    },
+    "openai:o4-mini": {
+      "context": 200000,
+      "output": 100000,
+      "vision": true,
+      "reasoning": true,
+      "released": "2025-04-16",
+      "cost": {
+        "input": 1.1,
+        "output": 4.4,
+        "cacheRead": 0.275,
+        "cacheWrite": 1.1
+      }
+    }
+  }
+}

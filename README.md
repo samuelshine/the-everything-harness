@@ -3,7 +3,7 @@
 A model-agnostic, **terminal-first** agent harness. You should be able to use it the way you use Claude Code: start it in a repo, talk to it, and let it read, edit and run things under rules you control. It handles context, tools, memory, skills, plugins/MCP, delegation, verification and safety, and works across LLM providers.
 
 ## Status
-**Early development.** `teh` works with local models through [Ollama](https://ollama.com): it reads, searches, edits and runs commands under permission rules, and logs each session. `teh undo` reverts a run's file changes. Running `teh` on its own opens an interactive terminal UI. Hooks run in Claude Code's format, and it connects to MCP servers over stdio and HTTP. There are no cloud providers yet. Background reading:
+**Early development.** `teh` works with local models (Ollama, LM Studio, llama.cpp, vLLM), with Anthropic and OpenAI API keys, and with your ChatGPT plan ([providers](docs/usage/providers.md)): it reads, searches, edits and runs commands under permission rules, and logs each session. `teh undo` reverts a run's file changes. Running `teh` on its own opens an interactive terminal UI. Hooks run in Claude Code's format, and it connects to MCP servers over stdio and HTTP. Background reading:
 - [Product brief](docs/product.md): name, audience, and the product decisions so far.
 - [Synthesis](docs/research/00-synthesis.md): principles, reference architecture, build order, open decisions.
 - [Terminal harness requirements](docs/research/10-terminal-harness.md): what "usable like Claude Code" means, feature by feature.
@@ -45,6 +45,7 @@ packages/cli/dist/teh -p --model ollama:gemma4:e4b "What does this repo do?"
 ```
 
 ## Using teh
+- [Models and providers](docs/usage/providers.md): local models, API keys, the ChatGPT plan, other OpenAI-compatible servers, and cost.
 - [Interactive use](docs/usage/interactive.md): the terminal UI, model choice, trust, modes, the settings panel, tools and subagents.
 - [Permissions and the sandbox](docs/usage/permissions-and-sandbox.md): what runs without asking, rules, trust and the OS sandbox.
 - [Extensions](docs/usage/extensions.md): output styles, hooks, MCP servers, skills and commands.

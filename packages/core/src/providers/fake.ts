@@ -6,6 +6,7 @@ export type FakeTurn = StreamEvent[] | ((req: ModelRequest) => StreamEvent[]);
 
 export class FakeProvider implements Provider {
   readonly id = "fake";
+  readonly route = "local" as const;
   readonly requests: ModelRequest[] = [];
   private next = 0;
 

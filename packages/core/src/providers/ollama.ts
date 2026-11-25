@@ -31,6 +31,7 @@ export function ollamaBaseUrl(env: Record<string, string | undefined> = process.
 
 export class OllamaProvider implements Provider {
   readonly id = "ollama";
+  readonly route = "local" as const;
   private readonly baseUrl: string;
   private readonly numCtx: number;
   private readonly shown = new Map<string, Promise<ShowResponse>>();
