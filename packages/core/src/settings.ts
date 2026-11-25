@@ -7,6 +7,7 @@ import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { type HookConfig, mergeHooks, parseHooks } from "./hooks";
 import { PERMISSION_MODES, type PermissionMode, parseRules, type Rule } from "./permissions";
+import { loadPlugins } from "./plugins";
 import type { CompatibleConfig } from "./providers/compatible";
 import type { Capabilities } from "./providers/registry";
 
@@ -84,6 +85,10 @@ export function loadSettings(tehHome: string, projectRoot: string, home = homedi
     files: [],
     problems: [],
   };
+  // Enabled plugins' hooks run like the user's own (ADR-0026): installing was the act of trust.
+  const plugins = loadPlugins(tehHome);
+  out.hooks.user = mergeHooks(out.hooks.user, plugins.hooks);
+  for (const p of plugins.problems) if (p.area !== "mcp") out.problems.push({ path: p.path, message: p.message });
   const seen = new Set<string>();
   for (const f of settingsFiles(tehHome, projectRoot, home)) {
     const path = resolve(f.path);

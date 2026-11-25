@@ -147,16 +147,19 @@ export function mcpConfigFiles(tehHome: string, projectRoot: string): { scope: M
   ];
 }
 
-// User servers, then project servers, then --mcp-config (a file path or inline JSON).
-// On a name clash the later one wins, as with Claude Code's scopes; flags beat files.
+// Plugin servers (ADR-0026), then user servers, then project servers, then --mcp-config (a
+// file path or inline JSON). On a name clash the later one wins, as with Claude Code's
+// scopes; flags beat files.
 export function loadMcpConfig(opts: {
   tehHome: string;
   projectRoot: string;
   cwd: string;
   env: Record<string, string | undefined>;
   flags?: string[];
+  // Servers from enabled plugins, already parsed (loadPlugins).
+  plugin?: McpServerConfig[];
 }): McpConfigResult {
-  const all: McpConfigResult = { servers: [], problems: [] };
+  const all: McpConfigResult = { servers: [...(opts.plugin ?? [])], problems: [] };
   const add = (raw: unknown, scope: McpScope, source: string) => {
     const r = parseMcpServers(raw, scope, source, opts.env);
     all.problems.push(...r.problems);

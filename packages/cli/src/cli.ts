@@ -79,6 +79,7 @@ import { clipboardImage, externalEditor, promptHistory, shellRunner, supportsHyp
 import { login, logout } from "./login";
 import { mcpCommand, planMcp, splitDeferred, startMcp } from "./mcp";
 import { printHooks, printPermissions, runPermissions, SANDBOX_MODES, type SandboxMode, trust } from "./permissions";
+import { pluginCommand } from "./plugins";
 import { applyRewind, planRewind, rewind } from "./rewind";
 
 export type Io = {
@@ -106,7 +107,7 @@ export const USAGE = `Usage: teh [options] [prompt]
        teh -p [options] [prompt]
        teh models | teh login chatgpt | teh logout chatgpt
        teh rewind [point] | teh undo | teh sessions | teh checkpoints | teh restore <id>
-       teh skills | teh styles | teh hooks | teh mcp | teh permissions | teh trust
+       teh skills | teh styles | teh hooks | teh mcp | teh plugin | teh permissions | teh trust
 
 Start the interactive terminal UI (full screen), optionally with a first prompt. With -p, run
 one prompt headlessly and print the result; the prompt can also be piped on stdin.
@@ -147,7 +148,7 @@ Options:
                                 before it starts (or set TEH_SKILL_ROUTER). Uses nomic-embed-text
                                 (TEH_SKILL_ROUTER_EMBED_MODEL) and, for confirm, a small model
                                 set with TEH_SKILL_ROUTER_MODEL, e.g. ollama:qwen2.5:0.5b
-  -y, --yes                     Restore without asking (rewind, undo, restore)
+  -y, --yes                     Go ahead without asking (rewind, undo, restore, plugin install)
   -v, --version                 Print the version
   -h, --help                    Show this help
 
@@ -165,6 +166,11 @@ Commands:
   styles                        List output styles (--output-style <name>)
   hooks                         List hook commands from settings (Claude Code's "hooks" format)
   mcp                           Start the configured MCP servers and list their tools
+  plugin install <source>       Install a plugin (Claude Code's layout) from a folder, a git URL or
+                                name@marketplace; shows what it contains first, then asks (or --yes)
+  plugin list|enable|disable|remove [name]
+                                Manage installed plugins; their skills, commands, hooks and MCP
+                                servers load like your own
   sessions                      List this project's sessions, newest first
   sessions rm <id>              Delete a session and its cached view (its checkpoints stay)
   checkpoints                   List file snapshots taken before each run changed anything
@@ -214,6 +220,8 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   if (positionals[0] === "hooks") return printHooks(io, userHome(io));
   if (positionals[0] === "mcp")
     return mcpCommand(io, positionals.slice(1), v["mcp-config"] ?? [], v["strict-mcp-config"] ?? false, deps.mcp);
+  if (positionals[0] === "plugin" || positionals[0] === "plugins")
+    return pluginCommand(io, positionals.slice(1), v.yes ?? false);
   if (positionals[0] === "trust") return trust(io, v.revoke ?? false, userHome(io));
   const sandboxMode = (v.sandbox ?? io.env.TEH_SANDBOX) as SandboxMode | undefined;
   if (sandboxMode !== undefined && !SANDBOX_MODES.includes(sandboxMode))
@@ -1182,7 +1190,7 @@ function printSkills(io: Io): number {
     const usage = s.argumentHint ? `/${s.name} ${s.argumentHint}` : `/${s.name}`;
     const desc = s.description.replace(/\s+/g, " ");
     io.out(
-      `  ${usage.padEnd(28)} ${`${s.source} ${how}`.padEnd(24)} ${desc.length > 70 ? `${desc.slice(0, 69)}…` : desc}\n`,
+      `  ${usage.padEnd(28)} ${`${s.plugin ? `plugin ${s.plugin}` : s.source} ${how}`.padEnd(24)} ${desc.length > 70 ? `${desc.slice(0, 69)}…` : desc}\n`,
     );
   }
   for (const p of problems) io.out(`  skipped ${p.path}: ${p.message}\n`);
