@@ -24,6 +24,14 @@ Four evals existed (`evals/compaction`, `edit-feedback`, `model-routing`, `skill
   - **No OpenTelemetry SDK dependency.** The OTLP JSON encoding is small, and the SDK would add weight to a single-binary CLI for a feature that is off by default.
 - **Cost ledger** (`packages/core/src/ledger.ts`): one JSON line per run (or per prompt in the interactive UI) in `~/.teh/usage.jsonl`, holding the time, session id, the project folder's name, provider, model, auth route, tokens and cost at list prices (absent when the price is unknown). `teh usage [--days n]` sums it by day and by model. It stays on the user's machine and is unrelated to ADR-0011's statistics.
 
+## Results
+First terminal eval run, finished 2026-11-25 (started 2026-11-19): 10 tasks x 3 trials per model, local models through Ollama. Per-task table and observations in [`evals/terminal/README.md`](../../evals/terminal/README.md).
+
+| Model | pass@1 | pass^3 |
+|---|---|---|
+| ollama:gemma4:e4b | 70% | 50% |
+| ollama:qwen2.5:14b | 47% | 30% |
+
 ## Consequences
 - New evals use the shared runner; the four older ones keep their own scripts until they are next touched.
 - pass^k needs at least k trials per task; the default is 3.
