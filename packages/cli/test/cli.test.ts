@@ -980,3 +980,34 @@ describe("--allowedTools", () => {
     expect(expandRuleFlags(["--allowedTools", "Edit", "Refactor"])).toEqual(["--allowedTools", "Edit", "Refactor"]);
   });
 });
+
+describe("measurement", () => {
+  test("a headless run is written to the cost ledger and `teh usage` sums it", async () => {
+    const home = temp();
+    const r = await call(["-p", "--model", "ollama:fake", "hi"], { home, turns: [say("hello")] });
+    expect(r.code).toBe(0);
+    const ledger = readFileSync(join(home, "usage.jsonl"), "utf8").trim().split("\n");
+    expect(ledger).toHaveLength(1);
+    expect(JSON.parse(ledger[0] as string)).toMatchObject({ model: "fake", usage: { input: 10, output: 5 } });
+
+    const u = await call(["usage"], { home });
+    expect(u.code).toBe(0);
+    expect(u.out).toContain("By model:");
+    expect(u.out).toContain(":fake");
+    expect(u.out).toContain("1 runs");
+    expect((await call(["usage"], { home: temp() })).out).toContain("No usage recorded");
+    expect((await call(["usage", "--days", "0"], { home })).code).toBe(2);
+  });
+
+  test("TEH_TRACE_FILE writes GenAI spans for a headless run", async () => {
+    const home = temp();
+    const file = join(home, "trace.jsonl");
+    await call(["-p", "--model", "ollama:fake", "hi"], { home, turns: [say("hello")], env: { TEH_TRACE_FILE: file } });
+    const names = readFileSync(file, "utf8")
+      .trim()
+      .split("\n")
+      .map((l) => JSON.parse(l).name);
+    expect(names).toContain("invoke_agent teh");
+    expect(names).toContain("chat fake");
+  });
+});
