@@ -72,6 +72,79 @@ function loadTarget(io: Io, root: string, ref?: string): LoadedSession | string 
   return findSession(home, root, latest.id) ?? "could not read the latest session";
 }
 
+export type PlannedRewind = {
+  store: CheckpointStore;
+  plan?: RestorePlan;
+  before?: string; // the checkpoint of the files as they are now, to come back to
+  lines: string[]; // what will change, for the person
+  nothing: boolean; // already at this point
+};
+
+// Work out what rewinding to `point` would change, snapshotting the current files first.
+// Returns a message instead when it cannot be done.
+export async function planRewind(
+  home: string,
+  root: string,
+  session: LoadedSession,
+  point: RewindPoint,
+  scope: RewindScope,
+): Promise<PlannedRewind | string> {
+  const store = new CheckpointStore(home, root);
+  const lines: string[] = [];
+  let plan: RestorePlan | undefined;
+  let before: string | undefined;
+  if (scope !== "conversation") {
+    const why = store.unavailable();
+    if (why) return why;
+    const target = point.sha ? await store.find(point.sha) : undefined;
+    if (point.sha && !target) return `the checkpoint for point ${point.n} is missing from ${store.gitDir}`;
+    if (!target) lines.push("Files: teh changed nothing after this point, so there is nothing to restore.");
+    else {
+      const current = await store.snapshot("restore", session.id, `Before rewinding to point ${point.n}`);
+      before = current.sha;
+      const p = await store.plan(current, target);
+      if (p.write.length || p.remove.length) {
+        plan = p;
+        lines.push("Files:");
+        for (const f of p.write) lines.push(`  restore  ${f}`);
+        for (const f of p.remove) lines.push(`  delete   ${f}`);
+      } else lines.push("Files: already as they were at this point.");
+      for (const f of p.skipped) lines.push(`  keep     ${f}  (not covered by snapshots)`);
+    }
+  }
+  let dropped = 0;
+  if (scope !== "code") {
+    // Reasoning is hidden from the person, so it is not counted as a message.
+    const visible = (items: { kind: string }[]) => items.filter((i) => i.kind !== "reasoning").length;
+    dropped = Math.max(0, visible(session.items) - visible(conversationAt(session.path, point)));
+    lines.push(
+      dropped
+        ? `Conversation: goes back to this point; ${dropped} later message${dropped === 1 ? "" : "s"} set aside.`
+        : "Conversation: already at this point.",
+    );
+  }
+  const nothing = !plan && dropped === 0;
+  if (nothing) lines.push("Nothing to do: you are already at this point.");
+  return { store, ...(plan ? { plan } : {}), ...(before ? { before } : {}), lines, nothing };
+}
+
+// Restore the files and record the rewind in the session, so it can itself be rewound.
+export async function applyRewind(
+  log: SessionLog,
+  point: RewindPoint,
+  scope: RewindScope,
+  planned: PlannedRewind,
+): Promise<void> {
+  if (planned.plan) await planned.store.apply(planned.plan);
+  log.append("checkpoint", {
+    kind: "rewind",
+    title: `Before rewinding to point ${point.n}`,
+    conversationAt: log.lastEventId,
+    ...(planned.before && planned.plan ? { sha: planned.before } : {}),
+  });
+  log.append("rewind", { to: point.conversationAt, scope, point: point.n });
+}
+
 export async function rewind(io: Io, args: RewindArgs): Promise<number> {
   const fail = (m: string, code = 2) => {
     io.err(`teh: ${m}\n`);
@@ -119,46 +192,13 @@ export async function rewind(io: Io, args: RewindArgs): Promise<number> {
   scope ??= "both";
 
   // 3. Work out and show exactly what will change.
-  const store = new CheckpointStore(home, root);
-  let plan: RestorePlan | undefined;
-  let before: string | undefined;
+  const log = new SessionLog(home, resolve(io.cwd), undefined, session);
   io.out(`\nRewinding to point ${point.n}: ${pointLabel(point)}\n`);
   try {
-    if (scope !== "conversation") {
-      const why = store.unavailable();
-      if (why) return fail(why);
-      const target = point.sha ? await store.find(point.sha) : undefined;
-      if (point.sha && !target) return fail(`the checkpoint for point ${point.n} is missing from ${store.gitDir}`, 1);
-      if (!target) io.out("Files: teh changed nothing after this point, so there is nothing to restore.\n");
-      else {
-        const current = await store.snapshot("restore", session.id, `Before rewinding to point ${point.n}`);
-        before = current.sha;
-        const p = await store.plan(current, target);
-        if (p.write.length || p.remove.length) {
-          plan = p;
-          io.out("Files:\n");
-          for (const f of p.write) io.out(`  restore  ${f}\n`);
-          for (const f of p.remove) io.out(`  delete   ${f}\n`);
-        } else io.out("Files: already as they were at this point.\n");
-        for (const f of p.skipped) io.out(`  keep     ${f}  (not covered by snapshots)\n`);
-      }
-    }
-
-    let dropped = 0;
-    if (scope !== "code") {
-      // Reasoning is hidden from the person, so it is not counted as a message.
-      const visible = (items: { kind: string }[]) => items.filter((i) => i.kind !== "reasoning").length;
-      dropped = Math.max(0, visible(session.items) - visible(conversationAt(session.path, point)));
-      io.out(
-        dropped
-          ? `Conversation: goes back to this point; ${dropped} later message${dropped === 1 ? "" : "s"} set aside.\n`
-          : "Conversation: already at this point.\n",
-      );
-    }
-    if (!plan && dropped === 0) {
-      io.out("Nothing to do: you are already at this point.\n");
-      return 0;
-    }
+    const planned = await planRewind(home, root, session, point, scope);
+    if (typeof planned === "string") return fail(planned, 1);
+    for (const l of planned.lines) io.out(`${l}\n`);
+    if (planned.nothing) return 0;
 
     // 4. Confirm (ADR-0008: ask first).
     if (!args.yes) {
@@ -170,16 +210,7 @@ export async function rewind(io: Io, args: RewindArgs): Promise<number> {
     }
 
     // 5. Apply, then record it so the rewind itself can be rewound.
-    if (plan) await store.apply(plan);
-    const log = new SessionLog(home, resolve(io.cwd), undefined, session);
-    log.append("checkpoint", {
-      kind: "rewind",
-      title: `Before rewinding to point ${point.n}`,
-      conversationAt: log.lastEventId,
-      ...(before && plan ? { sha: before } : {}),
-    });
-    log.append("rewind", { to: point.conversationAt, scope, point: point.n });
-
+    await applyRewind(log, point, scope, planned);
     const back = session.points.length + 1;
     io.out(`\nDone. Changed your mind? Run \`teh rewind ${back}\` to return to how things were.\n`);
     if (scope !== "code") {

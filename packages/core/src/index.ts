@@ -11,6 +11,7 @@ export * from "./hooks";
 export * from "./instructions";
 export * from "./ledger";
 export * from "./mcp";
+export * from "./mentions";
 export * from "./modelpolicy";
 export * from "./permissions";
 export * from "./providers";

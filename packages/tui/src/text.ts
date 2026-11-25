@@ -43,6 +43,8 @@ export type Style = {
   magenta: (s: string) => string;
   cyan: (s: string) => string;
   gray: (s: string) => string;
+  // An OSC 8 hyperlink where the terminal supports one, else the text alone.
+  link: (text: string, url: string) => string;
   // Backgrounds for diff lines.
   added: (s: string) => string;
   removed: (s: string) => string;
@@ -50,7 +52,14 @@ export type Style = {
 
 const sgr = (on: number, off: number) => (s: string) => `\x1b[${on}m${s}\x1b[${off}m`;
 
-export function makeStyle(color: boolean): Style {
+const LINK_CLOSE = "\x1b]8;;\x1b\\";
+const osc8 = (text: string, url: string) =>
+  // Only plain http(s) URLs, with no control characters that could end the sequence early.
+  /^https?:\/\/[^\x00-\x20\x7f]+$/.test(url) ? `\x1b]8;;${url}\x1b\\${text}${LINK_CLOSE}` : text;
+
+export function makeStyle(color: boolean, hyperlinks = false): Style {
+  // Without hyperlinks, a link whose text is not its address shows the address after it.
+  const link = hyperlinks ? osc8 : (text: string, url: string) => (stripAnsi(text) === url ? text : `${text} (${url})`);
   if (!color) {
     const id = (s: string) => s;
     // Inverse still marks the cursor without colour.
@@ -59,6 +68,7 @@ export function makeStyle(color: boolean): Style {
       dim: id,
       italic: id,
       inverse: sgr(7, 27),
+      link,
       red: id,
       green: id,
       yellow: id,
@@ -77,6 +87,7 @@ export function makeStyle(color: boolean): Style {
     inverse: sgr(7, 27),
     red: sgr(31, 39),
     green: sgr(32, 39),
+    link,
     yellow: sgr(33, 39),
     blue: sgr(34, 39),
     magenta: sgr(35, 39),
@@ -109,12 +120,14 @@ export function wrapLine(line: string, cols: number): string[] {
   let cur = "";
   let curW = 0;
   let open = ""; // SGR sequences active since the last reset
+  let link = ""; // an OSC 8 hyperlink still open
   let lastSpace = -1; // index in `cur` after the last space
   let lastSpaceW = 0;
   for (const t of tokens(line)) {
     if (t.startsWith("\x1b")) {
       cur += t;
       if (/^\x1b\[0?m$/.test(t)) open = "";
+      else if (t.startsWith("\x1b]8;")) link = /^\x1b\]8;[^;]*;(\x07|\x1b\\)$/.test(t) ? "" : t;
       else if (t.endsWith("m")) open += t;
       continue;
     }
@@ -123,12 +136,12 @@ export function wrapLine(line: string, cols: number): string[] {
       if (lastSpace > 0 && t !== " ") {
         const head = cur.slice(0, lastSpace);
         const rest = cur.slice(lastSpace);
-        out.push(`${head}${open ? "\x1b[0m" : ""}`);
-        cur = open + rest;
+        out.push(`${head}${link ? LINK_CLOSE : ""}${open ? "\x1b[0m" : ""}`);
+        cur = open + link + rest;
         curW -= lastSpaceW;
       } else {
-        out.push(`${cur}${open ? "\x1b[0m" : ""}`);
-        cur = open;
+        out.push(`${cur}${link ? LINK_CLOSE : ""}${open ? "\x1b[0m" : ""}`);
+        cur = open + link;
         curW = 0;
       }
       lastSpace = -1;
@@ -164,5 +177,6 @@ export function clip(line: string, cols: number): string {
     out += t;
     w += cw;
   }
-  return `${out}…\x1b[0m`;
+  // Close any link cut off with the text.
+  return `${out}…${out.includes("\x1b]8;;h") ? LINK_CLOSE : ""}\x1b[0m`;
 }
