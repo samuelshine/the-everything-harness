@@ -4,14 +4,17 @@ import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { homedir } from "node:os";
 import { basename, join } from "node:path";
 import { splitRuleList } from "./permissions";
+import { loadPlugins } from "./plugins";
 
-export type SkillSource = "user" | "project";
+export type SkillSource = "user" | "project" | "plugin";
 
 export type Skill = {
   name: string;
   description: string;
   kind: "skill" | "command";
   source: SkillSource;
+  // The plugin a skill or command came from (ADR-0026); `name` may then be "plugin:name".
+  plugin?: string;
   // The Markdown file, and the directory relative references resolve against.
   path: string;
   dir: string;
@@ -52,20 +55,41 @@ export function loadSkills(tehHome: string, projectRoot: string, home = homedir(
   const add = (s: Skill) => {
     if (!skills.has(s.name)) skills.set(s.name, s);
   };
-  for (const root of skillRoots(tehHome, projectRoot, home)) {
+  const roots = skillRoots(tehHome, projectRoot, home);
+  const readRoot = (root: (typeof roots)[number]) => {
     for (const dir of subdirs(join(root.base, "skills"))) {
       const file = join(dir, "SKILL.md");
       if (!existsSync(file)) continue;
       const s = parseFile(file, "skill", root.source, problems);
       if (s) add(s);
     }
-    if (root.agentsDir) continue; // .agents/ holds skills only (Agent Skills spec)
-    const commands = join(root.base, "commands");
-    for (const f of markdownFiles(commands)) {
+    if (root.agentsDir) return; // .agents/ holds skills only (Agent Skills spec)
+    for (const f of markdownFiles(join(root.base, "commands"))) {
       const s = parseFile(f, "command", root.source, problems);
       if (s) add(s);
     }
+  };
+  for (const root of roots.filter((r) => r.source === "user")) readRoot(root);
+  // Plugins sit between the user's own and the project's (ADR-0026): a repository cannot
+  // shadow a plugin's command, and a plugin cannot shadow the user's.
+  for (const plugin of loadPlugins(tehHome).plugins) {
+    const files = [
+      ...(plugin.parts?.skillFiles.map((f) => ["skill", f] as const) ?? []),
+      ...(plugin.parts?.commandFiles.map((f) => ["command", f] as const) ?? []),
+    ];
+    for (const [kind, file] of files) {
+      const s = parseFile(file, kind, "plugin", problems);
+      if (!s) continue;
+      // Always "/plugin:name"; also "/name" unless something has that name already.
+      const namespaced = { ...s, name: `${plugin.name}:${s.name}`, plugin: plugin.name };
+      if (skills.has(s.name)) add(namespaced);
+      else {
+        add({ ...s, plugin: plugin.name });
+        add({ ...namespaced, modelInvocable: false });
+      }
+    }
   }
+  for (const root of roots.filter((r) => r.source === "project")) readRoot(root);
   return { skills: [...skills.values()].sort((a, b) => a.name.localeCompare(b.name)), problems };
 }
 
@@ -138,7 +162,7 @@ export function splitFrontmatter(text: string): { meta: Record<string, unknown>;
 
 // "/name rest of prompt" → { name, args }. A leading path like "/tmp/x" is not a command.
 export function parseSlash(prompt: string): { name: string; args: string } | undefined {
-  const m = prompt.trimStart().match(/^\/([a-z0-9][a-z0-9-]*)(?:\s+([\s\S]*))?$/);
+  const m = prompt.trimStart().match(/^\/([a-z0-9][a-z0-9:-]*)(?:\s+([\s\S]*))?$/);
   return m?.[1] ? { name: m[1], args: (m[2] ?? "").trim() } : undefined;
 }
 

@@ -26,7 +26,7 @@ import { skillTool } from "./tools/skill";
 import { EXPLORE_BRIEF, EXPLORE_TOOLS, type ExploreRequest, taskTool } from "./tools/task";
 import { formatTodos, latestTodos } from "./tools/todo";
 import type { Access, Tool, ToolContext, ToolResult } from "./tools/tool";
-import { ToolInputError } from "./tools/tool";
+import { obj, str, ToolInputError } from "./tools/tool";
 import { type SearchEngine, WEB_HELPER_BRIEF, type WebHelper } from "./tools/web";
 import { NOOP_TRACER, type Span, type Tracer } from "./tracing";
 import { addUsage, emptyUsage, type Image, type Item, ProviderError, type StopReason, type Usage } from "./types";
@@ -96,6 +96,9 @@ export type AgentOptions = {
   // Lifecycle hooks (ADR-0016). With `hookSessionStart`, SessionStart fires first with that source.
   hooks?: HookRunner;
   hookSessionStart?: "startup" | "resume" | "clear" | "compact";
+  // Set when this run is a subagent: its end fires SubagentStop instead of Stop, and a block
+  // sends it back for one more turn at most.
+  subagent?: { type: string; id: string };
   // The model for explore subagents (ADR-0019). When set, the Task tool is offered.
   explore?: { provider: Provider; model: string; label: string };
   // The model's context window in tokens. When known, the conversation is compacted before a
@@ -113,6 +116,11 @@ export type AgentOptions = {
   vision?: boolean;
   // Asks the user to approve a plan from ExitPlanMode; absent in headless runs (ADR-0022).
   reviewPlan?: PlanReviewer;
+  // Tools whose definitions are left out of the request until the model finds them with
+  // ToolSearch (ADR-0025), to keep many MCP tools from filling the context.
+  deferredTools?: Tool[];
+  // Called before each model request; returns new tool lists when a server's tools changed.
+  refreshTools?: () => Promise<{ tools: Tool[]; deferredTools?: Tool[] } | undefined>;
   // OpenTelemetry GenAI spans for this run (off unless configured; no content is recorded).
   tracer?: Tracer;
 };
@@ -130,6 +138,65 @@ export type AgentResult = {
   // Reported tokens per estimated token, to pass to the next run as `tokenScale`.
   tokenScale: number;
 };
+
+// ToolSearch (Claude Code's name): finds deferred tools and loads their definitions for the
+// following requests. "select:a,b" loads by name; other queries match names and descriptions.
+function toolSearchTool(deferred: () => Tool[], loaded: Set<string>): Tool<{ query: string; max_results: number }> {
+  return {
+    spec: {
+      name: "ToolSearch",
+      description:
+        'Load deferred tools so you can call them. Use "select:<name>[,<name>…]" for exact names from the deferred list, or keywords to search names and descriptions. Matching tools can be called from your next turn.',
+      inputSchema: {
+        type: "object",
+        properties: {
+          query: { type: "string" },
+          max_results: { type: "number", description: "At most this many (default 5)" },
+        },
+        required: ["query"],
+      },
+    },
+    parse: (raw) => {
+      const o = obj(raw);
+      const max = Number(o.max_results ?? 5);
+      return { query: str(o, "query"), max_results: Number.isFinite(max) && max > 0 ? Math.min(20, max) : 5 };
+    },
+    access: () => ({ kind: "read", paths: [], summary: "search tools" }),
+    run: async ({ query, max_results }) => {
+      const all = deferred();
+      let found: Tool[];
+      if (query.startsWith("select:")) {
+        const names = query
+          .slice(7)
+          .split(",")
+          .map((n) => n.trim())
+          .filter(Boolean);
+        found = all.filter((t) => names.includes(t.spec.name));
+      } else {
+        const words = query.toLowerCase().split(/\s+/).filter(Boolean);
+        const score = (t: Tool) => {
+          const hay = `${t.spec.name} ${t.spec.description}`.toLowerCase();
+          return words.reduce((n, w) => n + (t.spec.name.toLowerCase().includes(w) ? 3 : hay.includes(w) ? 1 : 0), 0);
+        };
+        found = all
+          .map((t) => [t, score(t)] as const)
+          .filter(([, sc]) => sc > 0)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, max_results)
+          .map(([t]) => t);
+      }
+      if (!found.length) return { content: `No deferred tool matches "${query}".`, isError: true };
+      for (const t of found) loaded.add(t.spec.name);
+      return {
+        content: `Loaded ${found.length} tool(s); call them from your next turn:\n${found
+          .map((t) =>
+            JSON.stringify({ name: t.spec.name, description: t.spec.description, input_schema: t.spec.inputSchema }),
+          )
+          .join("\n")}`,
+      };
+    },
+  };
+}
 
 // The OpenTelemetry GenAI name for a provider id.
 const OTEL_PROVIDER: Record<string, string> = { anthropic: "anthropic", openai: "openai", chatgpt: "openai" };
@@ -187,8 +254,12 @@ async function runAgentTraced(opts: AgentOptions, tracer: Tracer, root: Span): P
         ]
       : []),
   ];
-  const tools = [...opts.tools, ...extra];
-  const system = systemPrompt({
+  let tools = [...opts.tools, ...extra];
+  let deferred = opts.deferredTools ?? [];
+  const loaded = new Set<string>();
+  const search = deferred.length ? toolSearchTool(() => deferred, loaded) : undefined;
+  if (search) tools.push(search);
+  const baseSystem = systemPrompt({
     cwd: opts.cwd,
     projectRoot,
     platform: process.platform,
@@ -199,6 +270,11 @@ async function runAgentTraced(opts: AgentOptions, tracer: Tracer, root: Span): P
     ...(opts.outputStyle ? { style: opts.outputStyle } : {}),
     ...(opts.mcpInstructions?.length ? { mcpInstructions: opts.mcpInstructions } : {}),
   });
+  const deferredNote = () =>
+    deferred.length
+      ? `\n\n<deferred_tools>\nThese tools exist but their definitions are not loaded. Call ToolSearch with "select:<name>" (or keywords) to load one before using it:\n${deferred.map((t) => t.spec.name).join("\n")}\n</deferred_tools>`
+      : "";
+  let system = baseSystem + deferredNote();
   // WebFetch's reader: the explore model when there is one, else the main model. Its tokens
   // count like a subagent's: in the run's usage, not in the conversation.
   const reader = explore ?? { provider: opts.provider, model: opts.model };
@@ -234,7 +310,7 @@ async function runAgentTraced(opts: AgentOptions, tracer: Tracer, root: Span): P
     ...(opts.sandbox ? { sandbox: opts.sandbox } : {}),
     ...(opts.signal ? { signal: opts.signal } : {}),
   };
-  const byName = new Map(tools.map((t) => [t.spec.name, t]));
+  let byName = new Map([...tools, ...deferred].map((t) => [t.spec.name, t]));
   const log = opts.session;
   // A loaded skill's allowed-tools act as extra allow rules for the rest of the run (ADR-0003).
   // The CLI strips them from project skills in folders the user has not trusted.
@@ -333,7 +409,12 @@ async function runAgentTraced(opts: AgentOptions, tracer: Tracer, root: Span): P
   let todoNudges = 0;
   // Where this prompt's work starts, so only a to-do list written for it is enforced.
   let runStart = items.length;
-  const specs = tools.map((t) => t.spec);
+  // The tools sent: the loaded ones plus deferred ones found with ToolSearch.
+  const currentSpecs = () => [
+    ...tools.map((t) => t.spec),
+    ...deferred.filter((t) => loaded.has(t.spec.name)).map((t) => t.spec),
+  ];
+  let specs = currentSpecs();
   const window = opts.contextWindow;
   // Replace the conversation in place with a compacted one; false when that was not possible.
   const compactNow = async (keepFraction: number): Promise<boolean> => {
@@ -379,6 +460,16 @@ async function runAgentTraced(opts: AgentOptions, tracer: Tracer, root: Span): P
     let opaqueReasoning = false;
     let stop: StopReason = "end";
     let turnUsage = emptyUsage();
+    // A server said its tools changed (MCP list_changed): use the new list from now on.
+    const fresh = await opts.refreshTools?.().catch(() => undefined);
+    if (fresh) {
+      tools = [...fresh.tools, ...extra, ...(search ? [search] : [])];
+      deferred = fresh.deferredTools ?? deferred;
+      byName = new Map([...tools, ...deferred].map((t) => [t.spec.name, t]));
+      system = baseSystem + deferredNote();
+      emit({ type: "warning", message: "MCP tools changed; using the new list" });
+    }
+    specs = currentSpecs();
 
     if (
       window &&
@@ -464,13 +555,25 @@ async function runAgentTraced(opts: AgentOptions, tracer: Tracer, root: Span): P
 
     if (calls.length === 0) {
       // A Stop hook can send the model back to work, e.g. until the tests pass.
-      if (hooks?.has("Stop") && stop !== "error") {
-        const o = await hooks.run({ hook_event_name: "Stop", stop_hook_active: stopHookActive });
-        report("Stop", o);
+      const stopEvent = opts.subagent ? "SubagentStop" : "Stop";
+      if (hooks?.has(stopEvent) && stop !== "error" && !(opts.subagent && stopHookActive)) {
+        const o = await hooks.run(
+          opts.subagent
+            ? {
+                hook_event_name: "SubagentStop",
+                stop_hook_active: stopHookActive,
+                agent_type: opts.subagent.type,
+                agent_id: opts.subagent.id,
+                last_assistant_message: text,
+              }
+            : { hook_event_name: "Stop", stop_hook_active: stopHookActive },
+          opts.subagent?.type,
+        );
+        report(stopEvent, o);
         if (o.halt) return finish("hook_stopped", turn);
         if (o.block) {
           stopHookActive = true;
-          addHookText("Stop", o.block);
+          addHookText(stopEvent, o.block);
           continue;
         }
       }
@@ -603,6 +706,9 @@ async function runExplore(
     ...(parent.sandbox ? { sandbox: parent.sandbox } : {}),
     ...(req.signal ? { signal: req.signal } : {}),
     ...(parent.userInstructionsFile ? { userInstructionsFile: parent.userInstructionsFile } : {}),
+    ...(parent.hooks?.has("SubagentStop")
+      ? { hooks: parent.hooks.only(["SubagentStop"]), subagent: { type: "explore", id: callId } }
+      : {}),
     maxTurns: 25,
     onEvent: (e) => {
       if (e.type === "tool_call") {

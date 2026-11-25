@@ -5,13 +5,16 @@ import {
   detectSandbox,
   findProjectRoot,
   formatRule,
+  HOOK_EVENTS,
   type HookConfig,
+  hookName,
   isTrusted,
   loadSettings,
   mergeHooks,
   type PermissionConfig,
   type PermissionMode,
   parseRules,
+  pluginLabel,
   type Rule,
   type Sandbox,
   type Skill,
@@ -226,7 +229,7 @@ export function printHooks(io: Io, home: string): number {
   if (!total) {
     io.out(
       'No hooks configured. Add them under "hooks" in ~/.teh/settings.json or .teh/settings.json\n' +
-        "(Claude Code's format: events PreToolUse, PostToolUse, UserPromptSubmit, Stop, SessionStart, SessionEnd, Notification).\n",
+        `(Claude Code's format: command, http or prompt hooks on ${HOOK_EVENTS.join(", ")}).\n`,
     );
   }
   for (const [scope, config] of [
@@ -240,7 +243,9 @@ export function printHooks(io: Io, home: string): number {
       for (const g of groups ?? []) {
         for (const h of g.hooks) {
           const match = g.matcher ? `[${g.matcher}]` : "";
-          io.out(`  ${`${event}${match}`.padEnd(28)} ${h.command}  ${rel(root, h.source)}\n`);
+          io.out(
+            `  ${`${event}${match}`.padEnd(28)} ${hookName(h)}  ${pluginLabel(teh, h.source) ?? rel(root, h.source)}\n`,
+          );
         }
       }
     }

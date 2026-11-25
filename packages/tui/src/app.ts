@@ -114,6 +114,8 @@ export type TuiOptions = {
     points(session: SessionLog): RewindPoint[];
     apply(session: SessionLog, point: RewindPoint, scope: RewindScope): Promise<{ items: Item[]; lines: string[] }>;
   };
+  // MCP prompts, run as /mcp__<server>__<prompt> (ADR-0025).
+  mcpPrompts?: { name: string; description: string; expand(args: string): Promise<string> }[];
   // Chooses skills for a prompt (ADR-0015), as `teh -p` does.
   routeSkills?: (prompt: string) => Promise<RouteResult | undefined>;
   // Whether the terminal shows OSC 8 links and accepts OSC 52 copies.
@@ -996,7 +998,8 @@ export class TuiApp {
     const skills: [string, string][] = (this.agent.skills ?? [])
       .filter((s) => s.userInvocable)
       .map((s) => [s.name, s.description]);
-    return [...BUILTIN_COMMANDS, ...skills].filter(([n]) => n.toLowerCase().startsWith(q)).slice(0, 6);
+    const prompts: [string, string][] = (this.opts.mcpPrompts ?? []).map((p) => [p.name, p.description]);
+    return [...BUILTIN_COMMANDS, ...skills, ...prompts].filter(([n]) => n.toLowerCase().startsWith(q)).slice(0, 6);
   }
 
   // --- Prompts -----------------------------------------------------------------------
@@ -1019,6 +1022,17 @@ export class TuiApp {
     }
     if (slash && this.builtin(slash.name, slash.args)) return;
     let prompt = trimmed;
+    const mcpPrompt = slash ? this.opts.mcpPrompts?.find((p) => p.name === slash.name) : undefined;
+    if (slash && mcpPrompt) {
+      void mcpPrompt
+        .expand(slash.args)
+        .then((text) => this.runPrompt(trimmed, text, slash))
+        .catch((e: Error) => {
+          this.print([this.style.red(`  ✗ ${e.message}`), ""]);
+          this.render();
+        });
+      return;
+    }
     if (slash) {
       const skill = (this.agent.skills ?? []).find((s: Skill) => s.name === slash.name && s.userInvocable);
       if (!skill) {

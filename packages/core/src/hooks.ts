@@ -1,6 +1,8 @@
-// Hooks (ADR-0016): shell commands that run on lifecycle events, in Claude Code's format, so
-// existing hook scripts work unchanged. A hook reads one JSON object on stdin and answers
+// Hooks (ADR-0016): handlers that run on lifecycle events, in Claude Code's format, so
+// existing hook scripts work unchanged. A command hook reads one JSON object on stdin and answers
 // with its exit code (0 ok, 2 block, other = non-blocking error) and, optionally, JSON on stdout.
+// An HTTP hook POSTs the same JSON and answers with the same JSON. A prompt hook asks a model,
+// which answers {"ok": true} or {"ok": false, "reason": "…"}.
 import { shellArgv } from "./tools/bash";
 
 export const HOOK_EVENTS = [
@@ -12,13 +14,42 @@ export const HOOK_EVENTS = [
   "SessionEnd",
   "Notification",
   "PreCompact",
+  "SubagentStop",
 ] as const;
 export type HookEvent = (typeof HOOK_EVENTS)[number];
 
 // Claude Code events teh does not fire yet. Accepted in settings so a shared file loads cleanly.
-export const LATER_HOOK_EVENTS = ["SubagentStop"] as const;
+export const LATER_HOOK_EVENTS = [] as const;
 
-export type HookCommand = { command: string; timeoutSec?: number; source: string };
+export type HookCommand =
+  | {
+      type?: "command";
+      command: string;
+      timeoutSec?: number;
+      source: string;
+      // Extra environment for the command, e.g. CLAUDE_PLUGIN_ROOT for a plugin's hook (ADR-0026).
+      env?: Record<string, string>;
+    }
+  | {
+      type: "http";
+      url: string;
+      headers?: Record<string, string>;
+      // Environment variables the headers may name as $VAR or ${VAR}; others are left out.
+      allowedEnvVars?: string[];
+      timeoutSec?: number;
+      source: string;
+    }
+  | { type: "prompt"; prompt: string; model?: string; timeoutSec?: number; source: string };
+
+// What identifies a hook, so the same one configured twice runs once.
+const hookKey = (h: HookCommand) =>
+  h.type === "http" ? `http ${h.url}` : h.type === "prompt" ? `prompt ${h.prompt}` : `command ${h.command}`;
+export const hookName = (h: HookCommand) => {
+  const n = h.type === "http" ? h.url : h.type === "prompt" ? `prompt "${h.prompt}"` : h.command;
+  return n.length > 60 ? `${n.slice(0, 59)}…` : n;
+};
+// Events where a prompt hook makes sense: it answers whether something may go ahead.
+const PROMPT_EVENTS = new Set<string>(["PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop", "SubagentStop"]);
 export type HookGroup = { matcher?: string; hooks: HookCommand[] };
 export type HookConfig = Partial<Record<HookEvent, HookGroup[]>>;
 
@@ -58,13 +89,52 @@ export function parseHooks(raw: unknown, source: string): { config: HookConfig; 
       }
       const hooks: HookCommand[] = [];
       for (const h of group.hooks as unknown[]) {
-        const hook = h as { type?: unknown; command?: unknown; timeout?: unknown };
-        if (hook?.type !== "command" || typeof hook.command !== "string" || !hook.command.trim()) {
-          problems.push(`hooks.${event}: only {"type": "command", "command": "..."} hooks are supported`);
-          continue;
+        const hook = h as {
+          type?: unknown;
+          command?: unknown;
+          url?: unknown;
+          headers?: unknown;
+          allowedEnvVars?: unknown;
+          prompt?: unknown;
+          model?: unknown;
+          timeout?: unknown;
+        };
+        const timeout = typeof hook?.timeout === "number" && hook.timeout > 0 ? { timeoutSec: hook.timeout } : {};
+        if (hook?.type === "command" && typeof hook.command === "string" && hook.command.trim()) {
+          hooks.push({ type: "command", command: hook.command, source, ...timeout });
+        } else if (hook?.type === "http" && typeof hook.url === "string" && /^https?:\/\//.test(hook.url)) {
+          const headers =
+            hook.headers && typeof hook.headers === "object" && !Array.isArray(hook.headers)
+              ? Object.fromEntries(Object.entries(hook.headers).filter(([, v]) => typeof v === "string"))
+              : undefined;
+          const allowed = Array.isArray(hook.allowedEnvVars)
+            ? hook.allowedEnvVars.filter((x): x is string => typeof x === "string")
+            : undefined;
+          hooks.push({
+            type: "http",
+            url: hook.url,
+            source,
+            ...(headers ? { headers: headers as Record<string, string> } : {}),
+            ...(allowed ? { allowedEnvVars: allowed } : {}),
+            ...timeout,
+          });
+        } else if (hook?.type === "prompt" && typeof hook.prompt === "string" && hook.prompt.trim()) {
+          if (!PROMPT_EVENTS.has(event)) {
+            problems.push(`hooks.${event}: prompt hooks work on ${[...PROMPT_EVENTS].join(", ")}`);
+            continue;
+          }
+          hooks.push({
+            type: "prompt",
+            prompt: hook.prompt,
+            source,
+            ...(typeof hook.model === "string" ? { model: hook.model } : {}),
+            ...timeout,
+          });
+        } else {
+          problems.push(
+            `hooks.${event}: each hook needs {"type": "command", "command"}, {"type": "http", "url"} or {"type": "prompt", "prompt"}`,
+          );
         }
-        const timeout = typeof hook.timeout === "number" && hook.timeout > 0 ? hook.timeout : undefined;
-        hooks.push({ command: hook.command, source, ...(timeout ? { timeoutSec: timeout } : {}) });
       }
       if (hooks.length)
         parsed.push({
@@ -115,7 +185,14 @@ export type HookInput =
   | { hook_event_name: "SessionStart"; source: "startup" | "resume" | "clear" | "compact" }
   | { hook_event_name: "SessionEnd"; reason: "clear" | "logout" | "prompt_input_exit" | "other" }
   | { hook_event_name: "Notification"; message: string }
-  | { hook_event_name: "PreCompact"; trigger: "manual" | "auto"; custom_instructions: string };
+  | { hook_event_name: "PreCompact"; trigger: "manual" | "auto"; custom_instructions: string }
+  | {
+      hook_event_name: "SubagentStop";
+      stop_hook_active: boolean;
+      agent_type: string;
+      agent_id: string;
+      last_assistant_message: string;
+    };
 
 // The combined answer of every hook that ran for one event.
 export type HookOutcome = {
@@ -141,6 +218,9 @@ export type HookRunnerOptions = {
   transcriptPath: string;
   env?: Record<string, string | undefined>;
   signal?: AbortSignal;
+  // For prompt hooks: asks a model, returns its reply. Without it, prompt hooks are skipped.
+  judge?: (prompt: string, model: string | undefined, signal: AbortSignal) => Promise<string>;
+  fetch?: typeof fetch;
 };
 
 export class HookRunner {
@@ -150,13 +230,20 @@ export class HookRunner {
     return (this.opts.config[event]?.length ?? 0) > 0;
   }
 
+  // A runner with only these events' hooks, e.g. for a subagent, which fires SubagentStop only.
+  only(events: HookEvent[]): HookRunner {
+    const config: HookConfig = {};
+    for (const e of events) if (this.opts.config[e]) config[e] = this.opts.config[e];
+    return new HookRunner({ ...this.opts, config });
+  }
+
   // Runs every hook whose matcher fits, in parallel; identical commands run once.
   async run(input: HookInput, matchValue?: string): Promise<HookOutcome> {
     const event = input.hook_event_name;
     const outcome: HookOutcome = { context: [], messages: [], ran: 0 };
     const groups = (this.opts.config[event] ?? []).filter((g) => matches(g, matchValue));
     const unique = new Map<string, HookCommand>();
-    for (const g of groups) for (const h of g.hooks) if (!unique.has(h.command)) unique.set(h.command, h);
+    for (const g of groups) for (const h of g.hooks) if (!unique.has(hookKey(h))) unique.set(hookKey(h), h);
     if (!unique.size) return outcome;
     const payload: HookBase & HookInput = {
       session_id: this.opts.sessionId,
@@ -170,10 +257,85 @@ export class HookRunner {
     return outcome;
   }
 
+  // An HTTP hook: POST the event; a 2xx reply's JSON is read as a command hook's stdout.
+  private async http(hook: Extract<HookCommand, { type: "http" }>, body: string): Promise<ExecResult> {
+    const allowed = new Set(hook.allowedEnvVars ?? []);
+    const env = this.opts.env ?? {};
+    const headers = Object.fromEntries(
+      Object.entries(hook.headers ?? {}).map(([k, v]) => [
+        k,
+        v.replace(/\$\{?([A-Za-z_][A-Za-z0-9_]*)\}?/g, (_, name: string) =>
+          allowed.has(name) ? (env[name] ?? "") : "",
+        ),
+      ]),
+    );
+    try {
+      const r = await (this.opts.fetch ?? fetch)(hook.url, {
+        method: "POST",
+        headers: { "content-type": "application/json", ...headers },
+        body,
+        signal: hookSignal(hook, this.opts.signal),
+      });
+      const text = await r.text();
+      // Only a 2xx answer counts; anything else is a non-blocking error, as in Claude Code.
+      return r.ok
+        ? { hook, code: 0, stdout: text, stderr: "", timedOut: false }
+        : {
+            hook,
+            code: 1,
+            stdout: "",
+            stderr: `HTTP ${r.status}${text ? `: ${text.slice(0, 200)}` : ""}`,
+            timedOut: false,
+          };
+    } catch (e) {
+      if (isTimeout(e)) return { hook, code: -1, stdout: "", stderr: "", timedOut: true };
+      return { hook, code: 1, stdout: "", stderr: (e as Error).message, timedOut: false };
+    }
+  }
+
+  // A prompt hook: the model reads the event and answers {"ok": bool, "reason"}. Not ok blocks,
+  // like exit code 2, with the reason for the model.
+  private async prompt(hook: Extract<HookCommand, { type: "prompt" }>, input: string): Promise<ExecResult> {
+    if (!this.opts.judge)
+      return { hook, code: 1, stdout: "", stderr: "prompt hooks need a model; none is configured", timedOut: false };
+    const text = hook.prompt.includes("$ARGUMENTS")
+      ? hook.prompt.replaceAll("$ARGUMENTS", input)
+      : `${hook.prompt}\n\nThe event, as JSON:\n${input}`;
+    const ask = `${text}\n\nAnswer with JSON only: {"ok": true} to let it go ahead, or {"ok": false, "reason": "<what to do instead>"}.`;
+    try {
+      const reply = await this.opts.judge(ask, hook.model, hookSignal(hook, this.opts.signal));
+      const m = reply.match(/\{[\s\S]*\}/);
+      const v = m ? (JSON.parse(m[0]) as { ok?: unknown; reason?: unknown }) : undefined;
+      if (typeof v?.ok !== "boolean")
+        return {
+          hook,
+          code: 1,
+          stdout: "",
+          stderr: `the model's answer was not {"ok": …}: ${reply.slice(0, 120)}`,
+          timedOut: false,
+        };
+      return v.ok
+        ? { hook, code: 0, stdout: "", stderr: "", timedOut: false }
+        : {
+            hook,
+            code: 2,
+            stdout: "",
+            stderr: typeof v.reason === "string" && v.reason ? v.reason : "the prompt hook said no",
+            timedOut: false,
+          };
+    } catch (e) {
+      if (isTimeout(e)) return { hook, code: -1, stdout: "", stderr: "", timedOut: true };
+      return { hook, code: 1, stdout: "", stderr: (e as Error).message, timedOut: false };
+    }
+  }
+
   private async exec(hook: HookCommand, stdin: string): Promise<ExecResult> {
+    if (hook.type === "http") return this.http(hook, stdin);
+    if (hook.type === "prompt") return this.prompt(hook, stdin);
     const timeoutMs = (hook.timeoutSec ?? DEFAULT_TIMEOUT_SEC) * 1000;
     const env = {
       ...this.opts.env,
+      ...hook.env,
       TEH_PROJECT_DIR: this.opts.projectRoot,
       // Claude Code's name, so existing scripts find the project (ADR-0010).
       CLAUDE_PROJECT_DIR: this.opts.projectRoot,
@@ -227,6 +389,14 @@ export class HookRunner {
 
 type ExecResult = { hook: HookCommand; code: number; stdout: string; stderr: string; timedOut: boolean };
 
+// The signal for one hook: the run's, plus the hook's own timeout.
+function hookSignal(hook: HookCommand, run?: AbortSignal): AbortSignal {
+  const t = AbortSignal.timeout((hook.timeoutSec ?? DEFAULT_TIMEOUT_SEC) * 1000);
+  return run ? AbortSignal.any([run, t]) : t;
+}
+
+const isTimeout = (e: unknown) => (e as Error)?.name === "TimeoutError";
+
 type HookJson = {
   continue?: boolean;
   stopReason?: string;
@@ -265,10 +435,10 @@ function addBlock(o: HookOutcome, reason: string) {
 // Events whose plain stdout (exit 0) is added to the model's context, as in Claude Code.
 const STDOUT_IS_CONTEXT = new Set<HookEvent>(["UserPromptSubmit", "SessionStart"]);
 // Events a hook can block.
-const BLOCKABLE = new Set<HookEvent>(["PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop"]);
+const BLOCKABLE = new Set<HookEvent>(["PreToolUse", "PostToolUse", "UserPromptSubmit", "Stop", "SubagentStop"]);
 
 function apply(o: HookOutcome, event: HookEvent, r: ExecResult) {
-  const name = r.hook.command.length > 60 ? `${r.hook.command.slice(0, 59)}…` : r.hook.command;
+  const name = hookName(r.hook);
   if (r.timedOut) {
     o.messages.push(`${event} hook timed out: ${name}`);
     return;

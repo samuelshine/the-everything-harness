@@ -26,7 +26,7 @@ Two things need deciding beyond copying the format:
 {"hooks": {"PreToolUse": [{"matcher": "Edit|Write", "hooks": [{"type": "command", "command": "./lint.sh", "timeout": 30}]}]}}
 ```
 
-- **Events fired:** `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`, `SessionEnd`. `Notification` is accepted, and the interactive UI fires it when it asks for approval. `PreCompact` fires before a compaction, matched on `manual` or `auto` (ADR-0020). `SubagentStop` loads without error and does not fire yet.
+- **Events fired:** `PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SessionStart`, `SessionEnd`. `Notification` is accepted, and the interactive UI fires it when it asks for approval. `PreCompact` fires before a compaction, matched on `manual` or `auto` (ADR-0020). `SubagentStop` fires when an explore subagent (ADR-0019) finishes, with `agent_type`, `agent_id` and `last_assistant_message`. It is matched on the agent type (`explore`). A subagent runs only its `SubagentStop` hooks, never the parent's `Stop` or tool hooks.
 - **Matcher:** a regex over the whole tool name (`Edit|Write`, `mcp__github__.*`). Empty or `*` matches everything. For SessionStart it matches the source (`startup`, `resume`).
 - **Input:** one JSON object on stdin: `session_id`, `transcript_path`, `cwd`, `hook_event_name`, plus the event's own fields (`tool_name`, `tool_input`, `tool_response`, `prompt`, `stop_hook_active`, `source`, `reason`, `message`). `CLAUDE_PROJECT_DIR` and `TEH_PROJECT_DIR` are set to the project root.
 - **Answer:**
@@ -39,6 +39,12 @@ Two things need deciding beyond copying the format:
     - `decision: "block"` + `reason` blocks;
     - `hookSpecificOutput.additionalContext` is added for the model;
     - for PreToolUse, `permissionDecision` (`allow`/`deny`/`ask`), `permissionDecisionReason` and `updatedInput`.
+- **Hook types:**
+  - `"command"`: described above.
+  - `"http"`: POSTs the same JSON to `url` (http or https) and reads a 2xx reply's JSON body like a command's stdout. A non-2xx reply, a connection error or a timeout is a non-blocking message; only the JSON can block. `headers` may name `$VAR` or `${VAR}`; only variables listed in `allowedEnvVars` are substituted, the rest become empty, so a header can't leak the environment.
+  - `"prompt"`: asks a model whether to go ahead. The prompt gets the event JSON (at `$ARGUMENTS`, or appended), and the model answers `{"ok": true}` or `{"ok": false, "reason": "…"}`. Not ok blocks like exit 2, with the reason for the model. An unparseable answer, an error, or no model configured is a non-blocking message. Prompt hooks work only on events that can block (`PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, `SubagentStop`); on others they are a settings problem.
+  - **Judge model.** The call is one-shot and tool-less, on the "fast" role (ADR-0014): the explore model (`roles.explore`, else the cheapest capable model on the session's route), falling back to the session's own model. A hook's `model` field overrides it. The harness supplies the model call (`HookRunnerOptions.judge`), so `packages/core` stays free of provider setup.
+- **SubagentStop:** a block (exit 2, `decision: "block"`, or a prompt hook saying no) sends the subagent back for one more turn with the reason. The second time it stops, the hook is not asked again (`stop_hook_active` is the guard, as for `Stop`), so a subagent can't be held in a loop.
 - **Execution:** every matching hook runs in parallel. An identical command runs once. The default timeout is 60 s.
 
 **Permissions.** A hook can make teh stricter freely, and more permissive only within the rules:
@@ -56,4 +62,4 @@ Two things need deciding beyond copying the format:
 - A hook can't widen what a deny rule blocks, so a script copied from Claude Code that relies on `allow` to bypass a deny rule behaves differently here. This is documented in the README.
 - **Hooks are not sandboxed.** They run with the user's full rights, like Claude Code's. Trust is the only gate for project hooks. Running hooks in the OS sandbox is a candidate follow-up.
 - `tool_response` is `{content, is_error}`, not Claude Code's per-tool shape. Scripts that read `tool_input` (the common case) work. Scripts that parse `tool_response` fields may need changes. Revisit if users hit this.
-- Not yet supported: `"type": "prompt"` hooks (asking a model to decide), HTTP hooks, and the `SubagentStop` event.
+- A prompt hook costs a model call per matching event. It runs on the fast model by default for that reason; put it on `Stop` or a narrow matcher rather than on every `PostToolUse`.

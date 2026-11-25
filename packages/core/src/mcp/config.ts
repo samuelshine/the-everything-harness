@@ -16,6 +16,8 @@ export type McpServerConfig =
       command: string;
       args: string[];
       env: Record<string, string>;
+      // Run inside the OS sandbox (ADR-0025): writes limited to the workspace and caches.
+      sandbox?: boolean;
     }
   | {
       name: string;
@@ -24,6 +26,8 @@ export type McpServerConfig =
       transport: "http";
       url: string;
       headers: Record<string, string>;
+      // A client registered by hand, for servers without dynamic registration (ADR-0025).
+      oauth?: { clientId: string; clientSecret?: string; scope?: string };
     };
 
 export type McpConfigResult = { servers: McpServerConfig[]; problems: { path: string; message: string }[] };
@@ -102,6 +106,7 @@ export function parseMcpServers(
         command: x(v.command),
         args: ((v.args as string[] | undefined) ?? []).map(x),
         env: serverEnv,
+        ...(v.sandbox === true ? { sandbox: true } : {}),
       });
     } else if (type === "http" || type === "streamable-http") {
       if (typeof v.url !== "string" || !/^https?:\/\//.test(v.url)) {
@@ -110,7 +115,17 @@ export function parseMcpServers(
       }
       const headers = strMap(v.headers, "headers");
       if (!headers) continue;
-      servers.push({ name, scope, source, transport: "http", url: x(v.url), headers });
+      const o = v.oauth as { clientId?: unknown; clientSecret?: unknown; scope?: unknown } | undefined;
+      const oauth =
+        o && typeof o.clientId === "string"
+          ? {
+              clientId: x(o.clientId),
+              ...(typeof o.clientSecret === "string" ? { clientSecret: x(o.clientSecret) } : {}),
+              ...(typeof o.scope === "string" ? { scope: o.scope } : {}),
+            }
+          : undefined;
+      if (o && !oauth) problem(`server "${name}": "oauth" needs a "clientId"`);
+      servers.push({ name, scope, source, transport: "http", url: x(v.url), headers, ...(oauth ? { oauth } : {}) });
     } else {
       problem(
         type === "sse"
@@ -132,16 +147,19 @@ export function mcpConfigFiles(tehHome: string, projectRoot: string): { scope: M
   ];
 }
 
-// User servers, then project servers, then --mcp-config (a file path or inline JSON).
-// On a name clash the later one wins, as with Claude Code's scopes; flags beat files.
+// Plugin servers (ADR-0026), then user servers, then project servers, then --mcp-config (a
+// file path or inline JSON). On a name clash the later one wins, as with Claude Code's
+// scopes; flags beat files.
 export function loadMcpConfig(opts: {
   tehHome: string;
   projectRoot: string;
   cwd: string;
   env: Record<string, string | undefined>;
   flags?: string[];
+  // Servers from enabled plugins, already parsed (loadPlugins).
+  plugin?: McpServerConfig[];
 }): McpConfigResult {
-  const all: McpConfigResult = { servers: [], problems: [] };
+  const all: McpConfigResult = { servers: [...(opts.plugin ?? [])], problems: [] };
   const add = (raw: unknown, scope: McpScope, source: string) => {
     const r = parseMcpServers(raw, scope, source, opts.env);
     all.problems.push(...r.problems);

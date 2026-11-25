@@ -21,6 +21,7 @@ import {
   DEFAULT_CLEANUP_PERIOD_DAYS,
   DEFAULT_EMBED_MODEL,
   DEFAULT_STYLE,
+  expandMcpPrompt,
   expandSkill,
   findProjectRoot,
   findSession,
@@ -76,8 +77,9 @@ import {
 import { askTrust, type TerminalIo, TuiApp } from "@everything-harness/tui";
 import { clipboardImage, externalEditor, promptHistory, shellRunner, supportsHyperlinks } from "./interactive";
 import { login, logout } from "./login";
-import { planMcp, printMcp, startMcp } from "./mcp";
+import { mcpCommand, planMcp, splitDeferred, startMcp } from "./mcp";
 import { printHooks, printPermissions, runPermissions, SANDBOX_MODES, type SandboxMode, trust } from "./permissions";
+import { pluginCommand } from "./plugins";
 import { applyRewind, planRewind, rewind } from "./rewind";
 
 export type Io = {
@@ -95,13 +97,17 @@ export type Io = {
   terminal?: () => TerminalIo;
 };
 
-export type Deps = { provider?: (name: string) => Provider };
+export type Deps = {
+  provider?: (name: string) => Provider;
+  // For `teh mcp login` in tests.
+  mcp?: { fetch?: typeof fetch; openBrowser?: (url: string) => void };
+};
 
 export const USAGE = `Usage: teh [options] [prompt]
        teh -p [options] [prompt]
        teh models | teh login chatgpt | teh logout chatgpt
        teh rewind [point] | teh undo | teh sessions | teh checkpoints | teh restore <id>
-       teh skills | teh styles | teh hooks | teh mcp | teh permissions | teh trust
+       teh skills | teh styles | teh hooks | teh mcp | teh plugin | teh permissions | teh trust
 
 Start the interactive terminal UI (full screen), optionally with a first prompt. With -p, run
 one prompt headlessly and print the result; the prompt can also be piped on stdin.
@@ -142,7 +148,7 @@ Options:
                                 before it starts (or set TEH_SKILL_ROUTER). Uses nomic-embed-text
                                 (TEH_SKILL_ROUTER_EMBED_MODEL) and, for confirm, a small model
                                 set with TEH_SKILL_ROUTER_MODEL, e.g. ollama:qwen2.5:0.5b
-  -y, --yes                     Restore without asking (rewind, undo, restore)
+  -y, --yes                     Go ahead without asking (rewind, undo, restore, plugin install)
   -v, --version                 Print the version
   -h, --help                    Show this help
 
@@ -160,6 +166,11 @@ Commands:
   styles                        List output styles (--output-style <name>)
   hooks                         List hook commands from settings (Claude Code's "hooks" format)
   mcp                           Start the configured MCP servers and list their tools
+  plugin install <source>       Install a plugin (Claude Code's layout) from a folder, a git URL or
+                                name@marketplace; shows what it contains first, then asks (or --yes)
+  plugin list|enable|disable|remove [name]
+                                Manage installed plugins; their skills, commands, hooks and MCP
+                                servers load like your own
   sessions                      List this project's sessions, newest first
   sessions rm <id>              Delete a session and its cached view (its checkpoints stay)
   checkpoints                   List file snapshots taken before each run changed anything
@@ -207,7 +218,10 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   if (positionals[0] === "skills") return printSkills(io);
   if (positionals[0] === "styles") return printStyles(io);
   if (positionals[0] === "hooks") return printHooks(io, userHome(io));
-  if (positionals[0] === "mcp") return printMcp(io, v["mcp-config"] ?? [], v["strict-mcp-config"] ?? false);
+  if (positionals[0] === "mcp")
+    return mcpCommand(io, positionals.slice(1), v["mcp-config"] ?? [], v["strict-mcp-config"] ?? false, deps.mcp);
+  if (positionals[0] === "plugin" || positionals[0] === "plugins")
+    return pluginCommand(io, positionals.slice(1), v.yes ?? false);
   if (positionals[0] === "trust") return trust(io, v.revoke ?? false, userHome(io));
   const sandboxMode = (v.sandbox ?? io.env.TEH_SANDBOX) as SandboxMode | undefined;
   if (sandboxMode !== undefined && !SANDBOX_MODES.includes(sandboxMode))
@@ -324,7 +338,9 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
   let prompt = typed;
   // The interactive UI handles "/name" itself.
   const slash = interactive ? undefined : parseSlash(typed);
-  if (slash) {
+  // "/mcp__<server>__<prompt>" is an MCP prompt, expanded once the servers are up (ADR-0025).
+  const mcpSlash = slash?.name.startsWith("mcp__") ? slash : undefined;
+  if (slash && !mcpSlash) {
     const skill = skills.find((s) => s.name === slash.name && s.userInvocable);
     if (!skill) {
       const near = similarNames(slash.name, skills);
@@ -441,13 +457,66 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       const scores = skillRoute.candidates.filter((c) => skillRoute.chosen.includes(c.name));
       io.err(`› skill router suggests ${scores.map((c) => `${c.name} (${c.score})`).join(", ")}\n`);
     }
-    mcp = await startMcp(io, mcpPlan.servers);
-    const tools = [...builtinTools, ...(mcp?.tools ?? [])];
+    mcp = await startMcp(io, mcpPlan.servers, perms.sandbox);
+    const toolSearch = io.env.TEH_TOOL_SEARCH ?? io.env.ENABLE_TOOL_SEARCH;
+    const split = splitDeferred(mcp?.tools ?? [], probe.contextWindow, toolSearch);
+    const tools = [...builtinTools, ...(mcp?.resourceTools ?? []), ...split.tools];
+    const conn = mcp;
+    // MCP list_changed: the servers' new tools, split the same way, before the next request.
+    const mcpTools = {
+      ...(split.deferred.length ? { deferredTools: split.deferred } : {}),
+      ...(conn
+        ? {
+            refreshTools: async () => {
+              if (!(await conn.refresh())) return undefined;
+              const next = splitDeferred(conn.tools, probe.contextWindow, toolSearch);
+              return {
+                tools: [...builtinTools, ...conn.resourceTools, ...next.tools],
+                deferredTools: next.deferred,
+              };
+            },
+          }
+        : {}),
+    };
+    if (mcpSlash) {
+      const p = mcp?.prompts.find((x) => x.name === mcpSlash.name);
+      if (!p)
+        return usageError(
+          io,
+          `no MCP prompt named /${mcpSlash.name}; \`teh mcp\` lists them${mcp?.prompts.length ? ` (${mcp.prompts.map((x) => `/${x.name}`).join(", ")})` : ""}`,
+        );
+      prompt = await expandMcpPrompt(p, mcpSlash.args);
+    }
     const session = new SessionLog(home, dir, undefined, resumed);
     const store = new CheckpointStore(home, root);
     const denied: Denied[] = [];
     const text = textOutput(io, denied);
     const checkpoint = { taken: false };
+    // Prompt hooks (ADR-0016): a one-shot, tool-less call on the fast model (the explore model,
+    // ADR-0014), else the session's own; a hook's own `model` wins.
+    const judge = async (ask: string, hookModel: string | undefined, signal: AbortSignal) => {
+      const target = hookModel
+        ? (() => {
+            const r = parseModelRef(hookModel);
+            return { provider: makeProvider(r.provider), model: r.model };
+          })()
+        : (explore ?? { provider, model: ref.model });
+      let reply = "";
+      for await (const ev of target.provider.stream(
+        {
+          model: target.model,
+          system: "You check an event against a rule for a coding agent. Follow the answer format exactly.",
+          items: [{ kind: "text", role: "user", text: ask }],
+          tools: [],
+          temperature: 0,
+          maxOutputTokens: 400,
+        },
+        signal,
+      )) {
+        if (ev.type === "text_delta") reply += ev.text;
+      }
+      return reply;
+    };
     const hooks = new HookRunner({
       config: perms.hooks,
       cwd: io.cwd,
@@ -455,6 +524,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       sessionId: session.id,
       transcriptPath: session.path,
       env: io.env,
+      judge,
     });
     if (term) {
       const hooksFor = (s: SessionLog) =>
@@ -465,6 +535,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
           sessionId: s.id,
           transcriptPath: s.path,
           env: io.env,
+          judge,
         });
       const editExternal = externalEditor(io.env);
       const app: TuiApp = new TuiApp({
@@ -532,6 +603,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
           model: ref.model,
           cwd: io.cwd,
           tools,
+          ...mcpTools,
           ...(mcp?.instructions.length ? { mcpInstructions: mcp.instructions } : {}),
           permissions: perms.config,
           ...(perms.sandbox ? { sandbox: perms.sandbox } : {}),
@@ -571,6 +643,15 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
         checkpoint: async ({ first, title }, p) =>
           (await store.snapshot(first ? "turn" : "step", app.currentSession.id, first ? p : title)).sha,
         promptHistory: promptHistory(home, dir),
+        ...(mcp?.prompts.length
+          ? {
+              mcpPrompts: mcp.prompts.map((p) => ({
+                name: p.name,
+                description: p.def.description ?? p.def.title ?? `${p.server} prompt`,
+                expand: (args: string) => expandMcpPrompt(p, args),
+              })),
+            }
+          : {}),
         listFiles: () => {
           const git = Bun.spawnSync(["git", "ls-files", "-co", "--exclude-standard"], { cwd: dir, stdout: "pipe" });
           return listFiles(dir, git.exitCode === 0 ? git.stdout.toString().split("\n").filter(Boolean) : undefined);
@@ -626,6 +707,7 @@ export async function run(argv: string[], io: Io, deps: Deps = {}): Promise<numb
       prompt,
       cwd: io.cwd,
       tools,
+      ...mcpTools,
       ...(mcp?.instructions.length ? { mcpInstructions: mcp.instructions } : {}),
       permissions: perms.config,
       ...(perms.sandbox ? { sandbox: perms.sandbox } : {}),
@@ -1135,7 +1217,7 @@ function printSkills(io: Io): number {
     const usage = s.argumentHint ? `/${s.name} ${s.argumentHint}` : `/${s.name}`;
     const desc = s.description.replace(/\s+/g, " ");
     io.out(
-      `  ${usage.padEnd(28)} ${`${s.source} ${how}`.padEnd(24)} ${desc.length > 70 ? `${desc.slice(0, 69)}…` : desc}\n`,
+      `  ${usage.padEnd(28)} ${`${s.plugin ? `plugin ${s.plugin}` : s.source} ${how}`.padEnd(24)} ${desc.length > 70 ? `${desc.slice(0, 69)}…` : desc}\n`,
     );
   }
   for (const p of problems) io.out(`  skipped ${p.path}: ${p.message}\n`);

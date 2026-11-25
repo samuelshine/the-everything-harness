@@ -760,7 +760,7 @@ describe("teh cli", () => {
       await call(["trust"], { cwd, home });
       const after = await call(["mcp"], { cwd, home });
       expect(after.code).toBe(0);
-      expect(after.out).toContain("4 tool(s)");
+      expect(after.out).toContain("5 tool(s)");
       expect(after.out).toContain("· mcp__local__echo");
       const ran = await call(["-p", "--model", "fake:fake", "--allowedTools", "mcp__local", "go"], {
         cwd,
