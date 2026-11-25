@@ -10,12 +10,14 @@ import {
   findProjectRoot,
   isTrusted,
   loadMcpConfig,
+  loadPlugins,
   type McpConnection,
   McpCredentials,
   type McpRegistration,
   type McpServerConfig,
   type PinStore,
   pkce,
+  pluginLabel,
   randomToken,
   registerClient,
   type Sandbox,
@@ -33,8 +35,20 @@ export type McpPlan = { servers: McpServerConfig[]; untrusted: McpServerConfig[]
 export function planMcp(io: Io, flags: string[], strict: boolean): McpPlan {
   const root = findProjectRoot(io.cwd);
   const home = tehHome(io.env);
-  const loaded = loadMcpConfig({ tehHome: home, projectRoot: root, cwd: io.cwd, env: io.env, flags });
-  const warnings = loaded.problems.map((p) => `MCP config ${p.path}: ${p.message}`);
+  // Enabled plugins' servers start like the user's own: installing the plugin was the trust.
+  const plugins = loadPlugins(home, io.env);
+  const loaded = loadMcpConfig({
+    tehHome: home,
+    projectRoot: root,
+    cwd: io.cwd,
+    env: io.env,
+    flags,
+    plugin: plugins.mcpServers,
+  });
+  const warnings = [
+    ...plugins.problems.filter((p) => p.area !== "hooks").map((p) => `plugin ${p.path}: ${p.message}`),
+    ...loaded.problems.map((p) => `MCP config ${p.path}: ${p.message}`),
+  ];
   let servers = strict ? loaded.servers.filter((s) => s.scope === "flag") : loaded.servers;
   const trusted = isTrusted(home, root);
   const untrusted = trusted ? [] : servers.filter((s) => s.scope === "project");
@@ -125,8 +139,11 @@ export function splitDeferred(
   return cost > budget ? { tools: [], deferred: mcpTools } : { tools: mcpTools, deferred: [] };
 }
 
-const where = (root: string, s: McpServerConfig) =>
-  s.scope === "flag" ? "--mcp-config" : relative(root, s.source).startsWith("..") ? s.source : relative(root, s.source);
+const where = (root: string, s: McpServerConfig, home: string) =>
+  s.scope === "flag"
+    ? "--mcp-config"
+    : (pluginLabel(home, s.source) ??
+      (relative(root, s.source).startsWith("..") ? s.source : relative(root, s.source)));
 
 const describe = (s: McpServerConfig) => (s.transport === "stdio" ? [s.command, ...s.args].join(" ") : s.url);
 
@@ -297,14 +314,16 @@ export async function printMcp(io: Io, flags: string[], strict: boolean): Promis
             ...(st.pin === "changed" ? [`TOOLS CHANGED since pinned: \`teh mcp pin ${s.name}\` accepts`] : []),
           ].join(", ")
         : `failed: ${st?.error}${st?.needsAuth ? ` (run \`teh mcp login ${s.name}\`)` : ""}`;
-      io.out(`  ${s.name.padEnd(20)} ${s.transport.padEnd(6)} ${where(root, s).padEnd(16)} ${extras}\n`);
+      io.out(
+        `  ${s.name.padEnd(20)} ${s.transport.padEnd(6)} ${where(root, s, tehHome(io.env)).padEnd(16)} ${extras}\n`,
+      );
       io.out(`    ${describe(s)}\n`);
       for (const t of st?.tools ?? []) io.out(`    · ${t}\n`);
       for (const p of st?.prompts ?? []) io.out(`    / /mcp__${s.name}__${p}\n`);
     }
     for (const s of plan.untrusted) {
       io.out(
-        `  ${s.name.padEnd(20)} ${s.transport.padEnd(6)} ${where(root, s).padEnd(16)} not started: run \`teh trust\`\n`,
+        `  ${s.name.padEnd(20)} ${s.transport.padEnd(6)} ${where(root, s, tehHome(io.env)).padEnd(16)} not started: run \`teh trust\`\n`,
       );
       io.out(`    ${describe(s)}\n`);
     }

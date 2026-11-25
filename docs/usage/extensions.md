@@ -1,4 +1,4 @@
-# Extensions: output styles, hooks, MCP and skills
+# Extensions: output styles, hooks, MCP, skills and plugins
 
 ## Output styles
 Output styles change how `teh` works and replies for a whole session. Pick one with `--output-style <name>`, or set `"outputStyle"` in settings:
@@ -52,3 +52,23 @@ MCP servers add tools from outside `teh` (GitHub, a browser, a database). Config
 - `teh -p "/human tidy README.md"` runs one by name.
 - The model also sees each skill's name and description, and loads a skill with the `Skill` tool when a request fits, for example "make this sound less like AI wrote it".
 - `--skill-router embed` (or `TEH_SKILL_ROUTER=embed`) has a local embedding model (`nomic-embed-text`) suggest a skill before the model starts. `embed+confirm` also asks a small model, set with `TEH_SKILL_ROUTER_MODEL=ollama:qwen2.5:0.5b`, to check the suggestion. Both are off by default; see [evals/skill-routing](evals/skill-routing/README.md) for when they help.
+
+## Plugins
+A plugin bundles skills, commands, hooks and MCP servers so one install adds a whole workflow (ADR-0026). `teh` reads Claude Code's plugin layout, so plugins written for it work:
+```
+my-plugin/
+  .claude-plugin/plugin.json   {"name": "my-plugin", "version": "1.0.0", "description": "…"}
+  commands/*.md                slash commands
+  skills/<name>/SKILL.md       skills
+  agents/*.md                  kept, but not used until subagents land
+  hooks/hooks.json             {"hooks": {"PostToolUse": [...]}}
+  .mcp.json                    {"mcpServers": {...}}
+```
+Only `name` is required in the manifest. `commands`, `agents`, `skills`, `hooks` and `mcpServers` can add more paths (relative to the plugin, written inline for the last two).
+
+- **Install:** `teh plugin install <source>`, where the source is a folder, a git URL (`https://…`, `ssh://…`, `git@host:path`, `file://…`), or `name@marketplace`. A marketplace is a folder or git repo with `.claude-plugin/marketplace.json` (`{"plugins": [{"name": "fmt", "source": "./plugins/fmt"}]}`); an entry's source can also be `{"source": "github", "repo": "owner/repo"}` or `{"source": "url", "url": "…"}`. teh copies the plugin to `~/.teh/plugins/<name>/` and records it in `~/.teh/plugins/installed.json`. Installing the same name again updates it.
+- **Trust:** a plugin is code. Before installing, teh lists its commands, skills, hook commands and MCP server commands, and installs only if you say yes (or pass `--yes`). Without a terminal and without `--yes` it prints the list and installs nothing. After that, its hooks and MCP servers run like your own: no `teh trust` step, your full rights. Read the scripts the listed commands call before you agree.
+- **Manage:** `teh plugin list`, `disable <name>` (keeps the files, stops loading them), `enable <name>`, `remove <name>`.
+- **Names:** a plugin's command or skill is `/plugin:name`, and also `/name` when nothing of yours already has that name. Your own `~/.teh/` ones come first, then plugins, then the project's, so a repo cannot take over a plugin's command. `teh skills`, `teh hooks` and `teh mcp` show which plugin each item came from.
+- **Plugin folder:** `${CLAUDE_PLUGIN_ROOT}` (or `${TEH_PLUGIN_ROOT}`) in a hook command or an MCP server's command, arguments, environment or URL becomes the plugin's folder. Both are also set as environment variables for hook commands and stdio servers.
+- **Not yet:** update checks and `teh plugin update` (install again from the same source), adding a marketplace once and installing by bare name, version pinning, and plugins named in a repo's own settings. See ADR-0026.

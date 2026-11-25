@@ -14,6 +14,7 @@ import {
   type PermissionConfig,
   type PermissionMode,
   parseRules,
+  pluginLabel,
   type Rule,
   type Sandbox,
   type Skill,
@@ -242,7 +243,9 @@ export function printHooks(io: Io, home: string): number {
       for (const g of groups ?? []) {
         for (const h of g.hooks) {
           const match = g.matcher ? `[${g.matcher}]` : "";
-          io.out(`  ${`${event}${match}`.padEnd(28)} ${hookName(h)}  ${rel(root, h.source)}\n`);
+          io.out(
+            `  ${`${event}${match}`.padEnd(28)} ${hookName(h)}  ${pluginLabel(teh, h.source) ?? rel(root, h.source)}\n`,
+          );
         }
       }
     }

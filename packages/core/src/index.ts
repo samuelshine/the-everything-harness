@@ -14,6 +14,7 @@ export * from "./mcp";
 export * from "./mentions";
 export * from "./modelpolicy";
 export * from "./permissions";
+export * from "./plugins";
 export * from "./providers";
 export * from "./providers/anthropic";
 export * from "./providers/compatible";

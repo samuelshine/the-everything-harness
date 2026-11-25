@@ -22,7 +22,14 @@ export type HookEvent = (typeof HOOK_EVENTS)[number];
 export const LATER_HOOK_EVENTS = [] as const;
 
 export type HookCommand =
-  | { type?: "command"; command: string; timeoutSec?: number; source: string }
+  | {
+      type?: "command";
+      command: string;
+      timeoutSec?: number;
+      source: string;
+      // Extra environment for the command, e.g. CLAUDE_PLUGIN_ROOT for a plugin's hook (ADR-0026).
+      env?: Record<string, string>;
+    }
   | {
       type: "http";
       url: string;
@@ -328,6 +335,7 @@ export class HookRunner {
     const timeoutMs = (hook.timeoutSec ?? DEFAULT_TIMEOUT_SEC) * 1000;
     const env = {
       ...this.opts.env,
+      ...hook.env,
       TEH_PROJECT_DIR: this.opts.projectRoot,
       // Claude Code's name, so existing scripts find the project (ADR-0010).
       CLAUDE_PROJECT_DIR: this.opts.projectRoot,
