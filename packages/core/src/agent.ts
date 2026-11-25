@@ -96,6 +96,9 @@ export type AgentOptions = {
   // Lifecycle hooks (ADR-0016). With `hookSessionStart`, SessionStart fires first with that source.
   hooks?: HookRunner;
   hookSessionStart?: "startup" | "resume" | "clear" | "compact";
+  // Set when this run is a subagent: its end fires SubagentStop instead of Stop, and a block
+  // sends it back for one more turn at most.
+  subagent?: { type: string; id: string };
   // The model for explore subagents (ADR-0019). When set, the Task tool is offered.
   explore?: { provider: Provider; model: string; label: string };
   // The model's context window in tokens. When known, the conversation is compacted before a
@@ -552,13 +555,25 @@ async function runAgentTraced(opts: AgentOptions, tracer: Tracer, root: Span): P
 
     if (calls.length === 0) {
       // A Stop hook can send the model back to work, e.g. until the tests pass.
-      if (hooks?.has("Stop") && stop !== "error") {
-        const o = await hooks.run({ hook_event_name: "Stop", stop_hook_active: stopHookActive });
-        report("Stop", o);
+      const stopEvent = opts.subagent ? "SubagentStop" : "Stop";
+      if (hooks?.has(stopEvent) && stop !== "error" && !(opts.subagent && stopHookActive)) {
+        const o = await hooks.run(
+          opts.subagent
+            ? {
+                hook_event_name: "SubagentStop",
+                stop_hook_active: stopHookActive,
+                agent_type: opts.subagent.type,
+                agent_id: opts.subagent.id,
+                last_assistant_message: text,
+              }
+            : { hook_event_name: "Stop", stop_hook_active: stopHookActive },
+          opts.subagent?.type,
+        );
+        report(stopEvent, o);
         if (o.halt) return finish("hook_stopped", turn);
         if (o.block) {
           stopHookActive = true;
-          addHookText("Stop", o.block);
+          addHookText(stopEvent, o.block);
           continue;
         }
       }
@@ -691,6 +706,9 @@ async function runExplore(
     ...(parent.sandbox ? { sandbox: parent.sandbox } : {}),
     ...(req.signal ? { signal: req.signal } : {}),
     ...(parent.userInstructionsFile ? { userInstructionsFile: parent.userInstructionsFile } : {}),
+    ...(parent.hooks?.has("SubagentStop")
+      ? { hooks: parent.hooks.only(["SubagentStop"]), subagent: { type: "explore", id: callId } }
+      : {}),
     maxTurns: 25,
     onEvent: (e) => {
       if (e.type === "tool_call") {

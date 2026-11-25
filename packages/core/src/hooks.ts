@@ -1,4 +1,4 @@
-// Hooks (ADR-0016, ADR-0026): handlers that run on lifecycle events, in Claude Code's format, so
+// Hooks (ADR-0016): handlers that run on lifecycle events, in Claude Code's format, so
 // existing hook scripts work unchanged. A command hook reads one JSON object on stdin and answers
 // with its exit code (0 ok, 2 block, other = non-blocking error) and, optionally, JSON on stdout.
 // An HTTP hook POSTs the same JSON and answers with the same JSON. A prompt hook asks a model,
@@ -37,7 +37,7 @@ export type HookCommand =
 // What identifies a hook, so the same one configured twice runs once.
 const hookKey = (h: HookCommand) =>
   h.type === "http" ? `http ${h.url}` : h.type === "prompt" ? `prompt ${h.prompt}` : `command ${h.command}`;
-const hookName = (h: HookCommand) => {
+export const hookName = (h: HookCommand) => {
   const n = h.type === "http" ? h.url : h.type === "prompt" ? `prompt "${h.prompt}"` : h.command;
   return n.length > 60 ? `${n.slice(0, 59)}…` : n;
 };
@@ -221,6 +221,13 @@ export class HookRunner {
 
   has(event: HookEvent): boolean {
     return (this.opts.config[event]?.length ?? 0) > 0;
+  }
+
+  // A runner with only these events' hooks, e.g. for a subagent, which fires SubagentStop only.
+  only(events: HookEvent[]): HookRunner {
+    const config: HookConfig = {};
+    for (const e of events) if (this.opts.config[e]) config[e] = this.opts.config[e];
+    return new HookRunner({ ...this.opts, config });
   }
 
   // Runs every hook whose matcher fits, in parallel; identical commands run once.
